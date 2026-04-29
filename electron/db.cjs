@@ -1,0 +1,553 @@
+const initSqlJs = require('sql.js')
+const path = require('node:path')
+const fs = require('node:fs')
+
+let dbPath = ''
+let db = null
+let SQL = null
+
+const DEFAULT_USER_ID = 'local-default'
+const DEFAULT_USER_NAME = 'Local User'
+const CURRENT_USER_STATE_KEY = 'current_user_id'
+
+function nowIso() {
+  return new Date().toISOString()
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function normalizeUserId(value, fallback = DEFAULT_USER_ID) {
+  const raw = String(value || '').trim()
+  return raw || fallback
+}
+
+function buildDefaultUser() {
+  const now = nowIso()
+  return {
+    id: DEFAULT_USER_ID,
+    nickname: DEFAULT_USER_NAME,
+    displayName: DEFAULT_USER_NAME,
+    email: '',
+    avatar: '',
+    provider: 'sqlite',
+    role: 'owner',
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+function hydrateUser(row) {
+  return {
+    id: String(row.id || '').trim(),
+    nickname: String(row.nickname || '').trim(),
+    displayName: String(row.display_name || '').trim(),
+    email: String(row.email || '').trim(),
+    avatar: String(row.avatar || '').trim(),
+    provider: String(row.provider || 'sqlite').trim() || 'sqlite',
+    role: String(row.role || 'owner').trim() || 'owner',
+    createdAt: String(row.created_at || '').trim(),
+    updatedAt: String(row.updated_at || '').trim()
+  }
+}
+
+function normalizeUser(raw, fallbackId = DEFAULT_USER_ID) {
+  const source = isPlainObject(raw) ? raw : {}
+  const fallback = buildDefaultUser()
+  const id = normalizeUserId(source.id || source._id || fallbackId || fallback.id, fallback.id)
+  const nickname = String(source.nickname || source.displayName || source.name || fallback.nickname).trim() || fallback.nickname
+
+  return {
+    id,
+    nickname,
+    displayName: String(source.displayName || source.nickname || source.name || nickname).trim() || nickname,
+    email: String(source.email || '').trim(),
+    avatar: String(source.avatar || source.avatarUrl || '').trim(),
+    provider: String(source.provider || fallback.provider).trim() || fallback.provider,
+    role: String(source.role || fallback.role).trim() || fallback.role,
+    createdAt: String(source.createdAt || fallback.createdAt).trim() || fallback.createdAt,
+    updatedAt: String(source.updatedAt || nowIso()).trim() || nowIso()
+  }
+}
+
+function hydrateSession(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    path: row.path,
+    folder: row.folder,
+    user_id: row.user_id,
+    messages: JSON.parse(row.messages_json || '[]'),
+    state: JSON.parse(row.state_json || '{}'),
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  }
+}
+
+function ensureParentDir(filePath) {
+  const parentDir = path.dirname(filePath)
+  if (!fs.existsSync(parentDir)) {
+    fs.mkdirSync(parentDir, { recursive: true })
+  }
+}
+
+function saveToDisk() {
+  if (!db || !dbPath) return
+  try {
+    const buffer = Buffer.from(db.export())
+    fs.writeFileSync(dbPath, buffer)
+  } catch (err) {
+    console.error('[db] failed to save database', err?.message || err)
+  }
+}
+
+function readAppStateValue(key) {
+  if (!db) return null
+  try {
+    const stmt = db.prepare('SELECT value FROM app_state WHERE key = ?')
+    stmt.bind([key])
+    if (stmt.step()) {
+      const row = stmt.getAsObject()
+      stmt.free()
+      return row.value ?? null
+    }
+    stmt.free()
+  } catch {}
+  return null
+}
+
+function writeAppStateValue(key, value) {
+  if (!db) return false
+  db.run(
+    `INSERT INTO app_state (key, value, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [key, String(value ?? '')]
+  )
+  return true
+}
+
+function listUsers() {
+  if (!db) return [buildDefaultUser()]
+  const rows = []
+  try {
+    const stmt = db.prepare('SELECT * FROM users ORDER BY created_at ASC, updated_at ASC')
+    while (stmt.step()) {
+      rows.push(hydrateUser(stmt.getAsObject()))
+    }
+    stmt.free()
+  } catch {}
+
+  if (!rows.length) {
+    const fallback = buildDefaultUser()
+    db.run(
+      `INSERT INTO users (id, nickname, display_name, email, avatar, provider, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [fallback.id, fallback.nickname, fallback.displayName, fallback.email, fallback.avatar, fallback.provider, fallback.role, fallback.createdAt, fallback.updatedAt]
+    )
+    writeAppStateValue(CURRENT_USER_STATE_KEY, fallback.id)
+    return [fallback]
+  }
+
+  return rows
+}
+
+function getCurrentUserId() {
+  if (!db) return DEFAULT_USER_ID
+
+  const currentId = normalizeUserId(readAppStateValue(CURRENT_USER_STATE_KEY), DEFAULT_USER_ID)
+  const users = listUsers()
+  if (users.some((item) => item.id === currentId)) {
+    return currentId
+  }
+
+  const fallback = users[0] || buildDefaultUser()
+  writeAppStateValue(CURRENT_USER_STATE_KEY, fallback.id)
+  return fallback.id
+}
+
+function getCurrentUser() {
+  const currentId = getCurrentUserId()
+  const user = listUsers().find((item) => item.id === currentId)
+  return user ? clone(user) : clone(buildDefaultUser())
+}
+
+function saveUser(user, options = {}) {
+  if (!db) throw new Error('database is not initialized')
+  const activate = options?.activate !== false
+  const normalized = normalizeUser(user, getCurrentUserId())
+  const existing = listUsers().find((item) => item.id === normalized.id)
+  const createdAt = existing?.createdAt || normalized.createdAt
+  const updatedAt = nowIso()
+
+  db.run(
+    `INSERT INTO users (id, nickname, display_name, email, avatar, provider, role, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       nickname = excluded.nickname,
+       display_name = excluded.display_name,
+       email = excluded.email,
+       avatar = excluded.avatar,
+       provider = excluded.provider,
+       role = excluded.role,
+       updated_at = excluded.updated_at`,
+    [
+      normalized.id,
+      normalized.nickname,
+      normalized.displayName,
+      normalized.email,
+      normalized.avatar,
+      normalized.provider,
+      normalized.role,
+      createdAt,
+      updatedAt
+    ]
+  )
+
+  if (activate) {
+    writeAppStateValue(CURRENT_USER_STATE_KEY, normalized.id)
+  }
+
+  saveToDisk()
+  return getCurrentUser()
+}
+
+function cleanupUserScopedData(userId) {
+  const normalized = normalizeUserId(userId)
+  const prefix = `user:${normalized}:`
+  db.run('DELETE FROM kv_store WHERE key LIKE ?', [`${prefix}%`])
+  db.run('DELETE FROM chat_sessions WHERE user_id = ?', [normalized])
+}
+
+function switchUser(id) {
+  if (!db) throw new Error('database is not initialized')
+  const targetId = normalizeUserId(id, '')
+  if (!targetId) return getCurrentUser()
+
+  const users = listUsers()
+  if (!users.some((item) => item.id === targetId)) {
+    throw new Error(`User not found: ${targetId}`)
+  }
+
+  writeAppStateValue(CURRENT_USER_STATE_KEY, targetId)
+  saveToDisk()
+  return getCurrentUser()
+}
+
+function deleteUser(id) {
+  if (!db) throw new Error('database is not initialized')
+  const targetId = normalizeUserId(id, '')
+  if (!targetId) return listUsers()
+
+  const users = listUsers()
+  if (!users.some((item) => item.id === targetId)) {
+    return users
+  }
+
+  const remaining = users.filter((item) => item.id !== targetId)
+  const safeUsers = remaining.length ? remaining : [buildDefaultUser()]
+
+  cleanupUserScopedData(targetId)
+  db.run('DELETE FROM users WHERE id = ?', [targetId])
+
+  if (!remaining.length) {
+    const fallback = safeUsers[0]
+    db.run(
+      `INSERT INTO users (id, nickname, display_name, email, avatar, provider, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [fallback.id, fallback.nickname, fallback.displayName, fallback.email, fallback.avatar, fallback.provider, fallback.role, fallback.createdAt, fallback.updatedAt]
+    )
+    writeAppStateValue(CURRENT_USER_STATE_KEY, fallback.id)
+  } else {
+    const currentId = getCurrentUserId()
+    if (currentId === targetId || !safeUsers.some((item) => item.id === currentId)) {
+      writeAppStateValue(CURRENT_USER_STATE_KEY, safeUsers[0].id)
+    }
+  }
+
+  saveToDisk()
+  return safeUsers
+}
+
+async function init(_dbPath) {
+  dbPath = _dbPath
+  const dir = path.dirname(dbPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+
+  SQL = await initSqlJs()
+  if (fs.existsSync(dbPath)) {
+    try {
+      const buffer = fs.readFileSync(dbPath)
+      db = new SQL.Database(buffer)
+    } catch {
+      db = new SQL.Database()
+    }
+  } else {
+    db = new SQL.Database()
+  }
+
+  db.run('PRAGMA journal_mode = OFF')
+  db.run('PRAGMA foreign_keys = ON')
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id           TEXT PRIMARY KEY,
+      nickname     TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL DEFAULT '',
+      email        TEXT NOT NULL DEFAULT '',
+      avatar       TEXT NOT NULL DEFAULT '',
+      provider     TEXT NOT NULL DEFAULT 'sqlite',
+      role         TEXT NOT NULL DEFAULT 'owner',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS kv_store (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id             TEXT PRIMARY KEY,
+      title          TEXT NOT NULL DEFAULT '',
+      path           TEXT NOT NULL UNIQUE,
+      folder         TEXT NOT NULL DEFAULT '',
+      user_id        TEXT NOT NULL DEFAULT 'local-default',
+      messages_json  TEXT NOT NULL DEFAULT '[]',
+      state_json     TEXT NOT NULL DEFAULT '{}',
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  try { db.run("ALTER TABLE chat_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT 'local-default'") } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_folder ON chat_sessions(folder)') } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_path ON chat_sessions(path)') } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON chat_sessions(user_id)') } catch {}
+
+  listUsers()
+  getCurrentUserId()
+  db.run("UPDATE chat_sessions SET user_id = ? WHERE user_id IS NULL OR user_id = ''", [getCurrentUserId()])
+  saveToDisk()
+  return db
+}
+
+function close() {
+  if (!db) return
+  saveToDisk()
+  db.close()
+  db = null
+}
+
+function getItem(key) {
+  if (!db) return null
+  try {
+    const stmt = db.prepare('SELECT value FROM kv_store WHERE key = ?')
+    stmt.bind([key])
+    if (stmt.step()) {
+      const row = stmt.getAsObject()
+      stmt.free()
+      return JSON.parse(row.value)
+    }
+    stmt.free()
+    return null
+  } catch {
+    return null
+  }
+}
+
+function setItem(key, value) {
+  if (!db) return false
+  try {
+    const json = JSON.stringify(value)
+    db.run(
+      `INSERT INTO kv_store (key, value, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [key, json]
+    )
+    saveToDisk()
+    return true
+  } catch {
+    return false
+  }
+}
+
+function removeItem(key) {
+  if (!db) return false
+  try {
+    db.run('DELETE FROM kv_store WHERE key = ?', [key])
+    saveToDisk()
+    return true
+  } catch {
+    return false
+  }
+}
+
+function sessionCreate(data) {
+  if (!db) throw new Error('database is not initialized')
+  const id = data.id || _uuid()
+  const title = data.title || ''
+  const fp = data.path || id
+  const folder = data.folder || ''
+  const userId = getCurrentUserId()
+  const messagesJson = JSON.stringify(data.messages || [])
+  const stateJson = JSON.stringify(data.state || {})
+
+  db.run(
+    `INSERT OR REPLACE INTO chat_sessions (id, title, path, folder, user_id, messages_json, state_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [id, title, fp, folder, userId, messagesJson, stateJson]
+  )
+  saveToDisk()
+  return sessionGet(id)
+}
+
+function sessionUpdate(id, patch) {
+  if (!db) throw new Error('database is not initialized')
+  const sets = []
+  const vals = []
+
+  if (patch.title !== undefined) { sets.push('title = ?'); vals.push(patch.title) }
+  if (patch.path !== undefined) { sets.push('path = ?'); vals.push(patch.path) }
+  if (patch.folder !== undefined) { sets.push('folder = ?'); vals.push(patch.folder) }
+  if (patch.messages !== undefined) { sets.push('messages_json = ?'); vals.push(JSON.stringify(patch.messages)) }
+  if (patch.state !== undefined) { sets.push('state_json = ?'); vals.push(JSON.stringify(patch.state)) }
+
+  if (sets.length === 0) return sessionGet(id)
+
+  sets.push('updated_at = datetime(\'now\')')
+  vals.push(id)
+  vals.push(getCurrentUserId())
+
+  db.run(`UPDATE chat_sessions SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`, vals)
+  saveToDisk()
+  return sessionGet(id)
+}
+
+function sessionDelete(id) {
+  if (!db) throw new Error('database is not initialized')
+  db.run('DELETE FROM chat_sessions WHERE id = ? AND user_id = ?', [id, getCurrentUserId()])
+  saveToDisk()
+  return { ok: true }
+}
+
+function sessionGet(id) {
+  if (!db) return null
+  try {
+    const stmt = db.prepare('SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?')
+    stmt.bind([id, getCurrentUserId()])
+    if (stmt.step()) {
+      const row = stmt.getAsObject()
+      stmt.free()
+      return hydrateSession(row)
+    }
+    stmt.free()
+    return null
+  } catch {
+    return null
+  }
+}
+
+function sessionGetByPath(fp) {
+  if (!db) return null
+  try {
+    const stmt = db.prepare('SELECT * FROM chat_sessions WHERE path = ? AND user_id = ?')
+    stmt.bind([fp, getCurrentUserId()])
+    if (stmt.step()) {
+      const row = stmt.getAsObject()
+      stmt.free()
+      return hydrateSession(row)
+    }
+    stmt.free()
+    return null
+  } catch {
+    return null
+  }
+}
+
+function sessionListByFolder(folder) {
+  if (!db) return []
+  const rows = []
+  try {
+    const stmt = db.prepare('SELECT * FROM chat_sessions WHERE folder = ? AND user_id = ? ORDER BY updated_at DESC')
+    stmt.bind([folder, getCurrentUserId()])
+    while (stmt.step()) {
+      rows.push(hydrateSession(stmt.getAsObject()))
+    }
+    stmt.free()
+  } catch {}
+  return rows
+}
+
+function sessionListTree() {
+  if (!db) return {}
+  const tree = {}
+  try {
+    const stmt = db.prepare('SELECT id, title, path, folder, created_at, updated_at FROM chat_sessions WHERE user_id = ? ORDER BY folder, updated_at DESC')
+    stmt.bind([getCurrentUserId()])
+    while (stmt.step()) {
+      const row = stmt.getAsObject()
+      const folder = row.folder || '__root__'
+      if (!tree[folder]) tree[folder] = []
+      tree[folder].push({
+        id: row.id,
+        title: row.title,
+        path: row.path,
+        folder: row.folder,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      })
+    }
+    stmt.free()
+  } catch {}
+  return tree
+}
+
+function _uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+  })
+}
+
+module.exports = {
+  init,
+  close,
+  getItem,
+  setItem,
+  removeItem,
+  sessionCreate,
+  sessionUpdate,
+  sessionDelete,
+  sessionGet,
+  sessionGetByPath,
+  sessionListByFolder,
+  sessionListTree,
+  getCurrentUserId,
+  getCurrentUser,
+  listUsers,
+  saveUser,
+  switchUser,
+  deleteUser
+}

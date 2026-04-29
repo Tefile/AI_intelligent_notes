@@ -1,0 +1,9 @@
+node_modules
+dist
+release
+.DS_Store
+*.log
+.vite
+.env.local
+.tmp-utools
+tests
