@@ -238,18 +238,6 @@ function buildBuiltinPrompt() {
     }
 }
 
-function buildBuiltinProvider() {
-    return {
-        _id: BUILTIN_PROVIDER_ID,
-        name: 'uTools AI（内置）',
-        providerType: 'utools-ai',
-        baseurl: '',
-        apikey: '',
-        selectModels: [],
-        builtin: true
-    }
-}
-
 function buildBuiltinAgent() {
     return {
         _id: BUILTIN_AGENT_ID,
@@ -714,7 +702,7 @@ function normalizeChatConfig(raw) {
 
     return {
         ...rest,
-        defaultProviderId: typeof src.defaultProviderId === 'string' ? src.defaultProviderId : BUILTIN_PROVIDER_ID,
+        defaultProviderId: typeof src.defaultProviderId === 'string' ? src.defaultProviderId : '',
         defaultModel: typeof src.defaultModel === 'string' ? src.defaultModel : '',
         defaultSystemPrompt: typeof src.defaultSystemPrompt === 'string'
             ? src.defaultSystemPrompt
@@ -1524,7 +1512,7 @@ class GlobalConfig {
         this._defaultConfig = {
             theme: 'light',
             chatConfig: {
-                defaultProviderId: BUILTIN_PROVIDER_ID,
+                defaultProviderId: '',
                 defaultModel: '',
                 defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
                 contextWindow: this._clone(DEFAULT_CHAT_CONTEXT_WINDOW_CONFIG)
@@ -1534,9 +1522,7 @@ class GlobalConfig {
             agents: {
                 [BUILTIN_AGENT_ID]: buildBuiltinAgent()
             },
-            providers: {
-                [BUILTIN_PROVIDER_ID]: buildBuiltinProvider()
-            },
+            providers: {},
             prompts: {
                 [BUILTIN_PROMPT_ID]: buildBuiltinPrompt()
             },
@@ -1608,7 +1594,6 @@ class GlobalConfig {
         const builtinAgentOrchestrationSkill = buildBuiltinAgentOrchestrationSkill()
         const builtinPrompt = buildBuiltinPrompt()
         const builtinAgent = buildBuiltinAgent()
-        const builtinProvider = buildBuiltinProvider()
 
         if (!this._isPlainObject(config.mcpServers)) {
             config.mcpServers = {}
@@ -1673,12 +1658,6 @@ class GlobalConfig {
             config.agents[BUILTIN_AGENT_ID] = this._clone(nextBuiltinAgent)
             changed = true
         }
-        const nextBuiltinProvider = mergeBuiltinProvider(config.providers[BUILTIN_PROVIDER_ID], builtinProvider)
-        if (!safeJsonEquals(config.providers[BUILTIN_PROVIDER_ID], nextBuiltinProvider)) {
-            config.providers[BUILTIN_PROVIDER_ID] = this._clone(nextBuiltinProvider)
-            changed = true
-        }
-
         const nextMcpServers = reorderObjectWithFirstKeys(config.mcpServers, BUILTIN_MCP_SERVER_IDS)
         if (!safeJsonEquals(nextMcpServers, config.mcpServers)) {
             config.mcpServers = nextMcpServers
@@ -1699,7 +1678,12 @@ class GlobalConfig {
             config.agents = nextAgents
             changed = true
         }
-        const nextProviders = reorderObjectWithFirstKeys(config.providers, BUILTIN_PROVIDER_IDS)
+        const providers = config.providers || {}
+        if (Object.prototype.hasOwnProperty.call(providers, BUILTIN_PROVIDER_ID)) {
+            delete providers[BUILTIN_PROVIDER_ID]
+            changed = true
+        }
+        const nextProviders = reorderObjectWithFirstKeys(providers, [])
         if (!safeJsonEquals(nextProviders, config.providers)) {
             config.providers = nextProviders
             changed = true

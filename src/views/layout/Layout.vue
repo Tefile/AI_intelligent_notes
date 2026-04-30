@@ -32,16 +32,14 @@
 
 <script setup>
 import { NSpace, NLayout, NLayoutSider, NMenu } from 'naive-ui'
-import { h, computed, watch } from 'vue'
+import { h, computed } from 'vue'
 import { NIcon } from 'naive-ui'
 import { useRouter, useRoute } from 'vue-router'
 import { routers } from '@/router/routes'
-import { useUtoolsEnterData } from '@/utils/utoolsListener'
 import { getTheme } from '@/utils/configListener'
 
 const router = useRouter()
 const route = useRoute()
-const utoolsEnterData = useUtoolsEnterData()
 const theme = getTheme()
 
 function renderIcon(icon) {
@@ -79,19 +77,6 @@ function handleMenuSelect(key) {
   router.push({ name: key })
 }
 
-const ENTER_ROUTE_MAP = Object.freeze({
-  Ai: 'chat'
-})
-
-watch(
-  utoolsEnterData,
-  (val) => {
-    const target = ENTER_ROUTE_MAP[val?.code]
-    if (!target || route.name === target) return
-    router.replace({ name: target })
-  },
-  { immediate: true }
-)
 </script>
 
 <style scoped>

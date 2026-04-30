@@ -12,13 +12,6 @@ import {
   normalizeAgentModelParams
 } from '@/utils/agentModelParams'
 import { buildSkillFileIndexLines, getSkillDescription, isDirectorySkill } from '@/utils/skillUtils'
-import {
-  buildUtoolsAiMessages,
-  canUseUtoolsAi,
-  isUtoolsBuiltinProvider,
-  refreshUtoolsAiModels,
-  registerUtoolsAiToolFunctions
-} from '@/utils/utoolsAiProvider'
 import { extractAssistantTextFromPayload } from '@/utils/chatAssistantResponse'
 import { stringifyToolResultForModel } from '@/utils/toolResultForModel'
 import { createDirectory, exists, writeFile } from '@/utils/fileOperations'
@@ -425,7 +418,6 @@ async function resolveExecutionProfile(task) {
   const providerId = String(
     agent.provider ||
     fallbackProviderId ||
-    (providersRef.value || []).find((p) => isUtoolsBuiltinProvider(p))?._id ||
     (providersRef.value || [])[0]?._id ||
     ''
   ).trim()
@@ -433,16 +425,7 @@ async function resolveExecutionProfile(task) {
   let provider = getProviderById(providerId)
   if (!provider) throw new Error('未找到 Provider：' + providerId)
 
-  let providerModels = Array.isArray(provider.selectModels) ? provider.selectModels : []
-  if (isUtoolsBuiltinProvider(provider) && !providerModels.length) {
-    try {
-      await refreshUtoolsAiModels({ force: true })
-    } catch {
-      // ignore and keep the explicit missing-model error below
-    }
-    provider = getProviderById(providerId) || provider
-    providerModels = Array.isArray(provider.selectModels) ? provider.selectModels : []
-  }
+  const providerModels = Array.isArray(provider.selectModels) ? provider.selectModels : []
   const model = String(agent.model || fallbackModel || providerModels[0] || '').trim()
   if (!model) throw new Error('未配置模型：请在 Agent 或默认模型中设置')
 
@@ -588,7 +571,7 @@ async function executeMcpToolCall({ toolCall, mapping, argsObj }) {
   }
 }
 
-async function invokeTimedTaskUtoolsAiTool({ name, argsObj, map, displayMessages }) {
+async function invokeTimedTaskBuiltinAiTool({ name, argsObj, map, displayMessages }) {
   const mapping = map.get(name)
   const argsText = stableStringify(argsObj || {})
 
@@ -610,7 +593,7 @@ async function invokeTimedTaskUtoolsAiTool({ name, argsObj, map, displayMessages
 
   const exec = await executeMcpToolCall({
     toolCall: {
-      id: `utools_call_${newId()}`,
+      id: `builtin_call_${newId()}`,
       type: 'function',
       function: {
         name,
@@ -632,64 +615,6 @@ async function invokeTimedTaskUtoolsAiTool({ name, argsObj, map, displayMessages
 
   const parsed = safeJsonParse(resultText)
   return parsed.ok ? parsed.value : resultText
-}
-
-async function runTimedTaskWithUtoolsAi({ profile, model, systemPrompt, displayMessages, apiMessages, requestTimeoutMs }) {
-  if (!canUseUtoolsAi()) {
-    throw new Error('当前环境不支持 uTools 官方 AI')
-  }
-
-  const { tools, map } = await buildMcpToolsBundle(profile.activeMcpServers)
-  const unregisterToolFns = registerUtoolsAiToolFunctions({
-    tools,
-    invokeTool: (name, argsObj) => invokeTimedTaskUtoolsAiTool({ name, argsObj, map, displayMessages })
-  })
-
-  let timedOut = false
-  let request = null
-  const timeoutTimer = window.setTimeout(() => {
-    timedOut = true
-    try {
-      request?.abort?.()
-    } catch {
-      // ignore
-    }
-  }, requestTimeoutMs)
-
-  try {
-    request = utools.ai({
-      model,
-      messages: buildUtoolsAiMessages({
-        systemContent: systemPrompt,
-        apiMessages
-      }),
-      ...(tools.length ? { tools } : {})
-    })
-
-    const result = await request
-    const assistantContent = toText(result?.content)
-    const reasoningContent = toText(result?.reasoning_content)
-
-    apiMessages.push({
-      role: 'assistant',
-      content: String(assistantContent || ''),
-      ...(reasoningContent ? { reasoning_content: reasoningContent } : {})
-    })
-
-    if (assistantContent && assistantContent.trim()) {
-      displayMessages.push(createDisplayMessage('assistant', assistantContent))
-    } else {
-      displayMessages.push(createDisplayMessage('assistant', '（模型返回为空）'))
-    }
-  } catch (err) {
-    if (timedOut) {
-      throw new Error(`请求超时：${requestTimeoutMs}ms`)
-    }
-    throw err
-  } finally {
-    window.clearTimeout(timeoutTimer)
-    unregisterToolFns()
-  }
 }
 
 function sanitizePathSegment(name) {
@@ -749,9 +674,8 @@ export async function runTimedTaskOnce(task, options = {}) {
   const requestOverrides = buildRequestOverridesFromAgentModelParams(profile.modelParams, { includeReasoningEffort: true })
   const systemPrompt = profile.systemPrompt
 
-  const isBuiltinUtoolsProvider = isUtoolsBuiltinProvider(provider)
-  const baseUrl = isBuiltinUtoolsProvider ? '__utools_builtin__' : String(provider.baseurl || '').trim()
-  const apiKey = isBuiltinUtoolsProvider ? '__utools_builtin__' : String(provider.apikey || '').trim()
+  const baseUrl = String(provider.baseurl || '').trim()
+  const apiKey = String(provider.apikey || '').trim()
   if (!baseUrl || !apiKey) throw new Error('Provider 未配置 baseurl / apikey')
 
   const userText = String(task?.content || '').trim()
@@ -788,24 +712,6 @@ export async function runTimedTaskOnce(task, options = {}) {
     }
 
     return payload
-  }
-
-  if (isBuiltinUtoolsProvider) {
-    try {
-      await runTimedTaskWithUtoolsAi({
-        profile,
-        model,
-        systemPrompt,
-        displayMessages,
-        apiMessages,
-        requestTimeoutMs: REQUEST_TIMEOUT_MS
-      })
-    } catch (err) {
-      const errorText = err?.message || String(err)
-      displayMessages.push(createDisplayMessage('assistant', `错误：${errorText}`))
-    }
-
-    return finalizePayload()
   }
 
   const { tools, map } = await buildMcpToolsBundle(profile.activeMcpServers)

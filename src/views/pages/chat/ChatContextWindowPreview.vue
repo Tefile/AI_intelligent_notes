@@ -1,133 +1,38 @@
 <template>
-  <div
-    v-if="budgetStatus?.level && budgetStatus.level !== 'safe'"
-    :class="['chat-context-budget-callout', `is-${budgetStatus.level}`, { 'is-dark': theme === 'dark' }]"
-  >
-    {{ budgetStatus.text }}
-  </div>
+  <ChatContextBudget
+    :budget-status="budgetStatus"
+    :budget-summary-text="budgetSummaryText"
+    :budget-items="budgetItems"
+    :theme="theme"
+  />
 
-  <div :class="['chat-context-budget', { 'is-dark': theme === 'dark' }]">
-    <div class="chat-context-budget__header">
-      <div class="chat-context-budget__title">预算占用</div>
-      <div class="chat-context-budget__meta">{{ budgetSummaryText }}</div>
-    </div>
-    <div class="chat-context-budget__list">
-      <div
-        v-for="item in budgetItems"
-        :key="item.key"
-        class="chat-context-budget__item"
-      >
-        <div class="chat-context-budget__row">
-          <div class="chat-context-budget__label">{{ item.label }}</div>
-          <div class="chat-context-budget__value">{{ item.usedLabel }} / {{ item.maxLabel }}</div>
-        </div>
-        <div class="chat-context-budget__track">
-          <div
-            class="chat-context-budget__fill"
-            :class="`is-${item.tone}`"
-            :style="{ width: `${item.percent}%` }"
-          />
-        </div>
-        <div v-if="item.hint" class="chat-context-budget__hint">{{ item.hint }}</div>
-      </div>
-    </div>
-  </div>
+  <ChatContextPreviewList
+    title="?????"
+    :summary-text="previewSummaryText"
+    :entries="entries"
+    :empty-text="'?????????????'"
+    :theme="theme"
+    :helpers="helpers"
+  />
 
-  <div :class="['chat-context-preview', { 'is-dark': theme === 'dark' }]">
-    <div class="chat-context-preview__header">
-      <div class="chat-context-preview__title">已纳入消息</div>
-      <div class="chat-context-preview__meta">{{ previewSummaryText }}</div>
-    </div>
-    <div v-if="entries.length" class="chat-context-preview__list">
-      <div
-        v-for="(entry, index) in entries"
-        :key="entryKey(entry, index)"
-        class="chat-context-preview__item"
-      >
-        <div class="chat-context-preview__item-header">
-          <n-tag size="small" :bordered="false" :type="helpers.modeType(entry)">
-            {{ helpers.modeLabel(entry) }}
-          </n-tag>
-          <div class="chat-context-preview__item-title">{{ helpers.entryLabel(entry, index) }}</div>
-          <div class="chat-context-preview__item-meta">
-            {{ entry.messageCount }} 条 · {{ helpers.formatApproxChars(entry.chars) }}
-          </div>
-        </div>
-        <div v-if="helpers.entryNote(entry)" class="chat-context-preview__item-note">
-          {{ helpers.entryNote(entry) }}
-        </div>
-        <div class="chat-context-preview__item-text">
-          {{ entry.previewText || '（无预览文本）' }}
-        </div>
-      </div>
-    </div>
-    <div v-else class="chat-context-preview__empty">
-      当前没有可发送的历史消息。
-    </div>
-  </div>
-
-  <div
-    v-if="omittedEntries.length"
-    :class="['chat-context-preview', 'chat-context-preview--omitted', { 'is-dark': theme === 'dark' }]"
-  >
-    <div class="chat-context-preview__header">
-      <div class="chat-context-preview__title">未纳入消息</div>
-      <div class="chat-context-preview__meta">{{ omittedSummaryText }}</div>
-    </div>
-    <div class="chat-context-preview__filters">
-      <n-button
-        v-for="option in omittedFilterOptions"
-        :key="option.value"
-        size="tiny"
-        secondary
-        :type="resolvedOmittedFilter === option.value ? 'primary' : 'default'"
-        @click="emit('update:omittedFilter', option.value)"
-      >
-        {{ option.label }} · {{ option.count }}
-      </n-button>
-    </div>
-    <div v-if="filteredOmittedEntries.length" class="chat-context-preview__list">
-      <div
-        v-for="(entry, index) in filteredOmittedEntries"
-        :key="entryKey(entry, index, 'omitted')"
-        class="chat-context-preview__item chat-context-preview__item--omitted"
-      >
-        <div class="chat-context-preview__item-header">
-          <n-tag size="small" :bordered="false" :type="helpers.modeType(entry)">
-            {{ helpers.modeLabel(entry) }}
-          </n-tag>
-          <div class="chat-context-preview__item-title">{{ helpers.entryLabel(entry, index) }}</div>
-          <div class="chat-context-preview__item-meta">
-            {{ entry.messageCount }} 条 · {{ helpers.formatApproxChars(entry.chars) }}
-          </div>
-        </div>
-        <div v-if="entry.reasons && entry.reasons.length" class="chat-context-preview__item-reasons">
-          <n-tag
-            v-for="reason in entry.reasons"
-            :key="`${entry.kind}-${entry.index ?? 'prelude'}-${reason}`"
-            size="small"
-            :bordered="false"
-            :type="helpers.omittedReasonType(reason)"
-          >
-            {{ helpers.omittedReasonLabel(reason) }}
-          </n-tag>
-        </div>
-        <div v-if="helpers.entryNote(entry)" class="chat-context-preview__item-note">
-          {{ helpers.entryNote(entry) }}
-        </div>
-        <div class="chat-context-preview__item-text">
-          {{ entry.previewText || '（无预览文本）' }}
-        </div>
-      </div>
-    </div>
-    <div v-else class="chat-context-preview__empty">
-      当前筛选下没有未纳入项。
-    </div>
-  </div>
+  <ChatContextOmittedList
+    title="?????"
+    :summary-text="omittedSummaryText"
+    :entries="omittedEntries"
+    :filter-options="omittedFilterOptions"
+    :resolved-filter="resolvedOmittedFilter"
+    :filtered-entries="filteredOmittedEntries"
+    :filtered-empty-text="'????????????'"
+    :theme="theme"
+    :helpers="helpers"
+    @update:omitted-filter="emit('update:omittedFilter', $event)"
+  />
 </template>
 
 <script setup>
-import { NButton, NTag } from 'naive-ui'
+import ChatContextBudget from './ChatContextBudget.vue'
+import ChatContextPreviewList from './ChatContextPreviewList.vue'
+import ChatContextOmittedList from './ChatContextOmittedList.vue'
 
 defineProps({
   budgetStatus: {
@@ -185,17 +90,6 @@ defineProps({
 })
 
 const emit = defineEmits(['update:omittedFilter'])
-
-function entryKey(entry, index, prefix = '') {
-  const parts = [
-    prefix,
-    entry?.kind || 'entry',
-    entry?.index ?? 'prelude',
-    entry?.mode || 'full',
-    index
-  ]
-  return parts.filter(Boolean).join('-')
-}
 </script>
 
 <style scoped>

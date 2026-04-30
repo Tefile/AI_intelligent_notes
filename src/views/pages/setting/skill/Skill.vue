@@ -407,8 +407,8 @@ function newId() {
   }
 }
 
-function getUtoolsApi() {
-  return window?.utools || globalThis?.utools
+function getElectronApi() {
+  return window?.electronAPI || globalThis?.electronAPI || null
 }
 
 function extractDialogPath(entry) {
@@ -458,7 +458,7 @@ function normalizeImportPath(value) {
 }
 
 function openPathDialog(options) {
-  const api = getUtoolsApi()
+  const api = getElectronApi()
   if (!api?.showOpenDialog) {
     throw new Error('当前环境不支持打开文件选择器')
   }

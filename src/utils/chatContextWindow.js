@@ -200,7 +200,6 @@ export function resolveChatContextWindowOptions(raw) {
 export function buildChatContextWindowRuntimeOptions(raw, runtime = {}) {
   const resolved = resolveChatContextWindowOptions(raw)
   const providerKind = typeof runtime?.providerKind === 'string' ? runtime.providerKind : 'openai-compatible'
-  const isUtools = providerKind === 'utools-ai'
   const maxChars = isFinitePositiveNumber(runtime?.maxChars)
     ? Math.floor(runtime.maxChars)
     : isFinitePositiveNumber(resolved.maxCharsExpanded)
@@ -209,18 +208,16 @@ export function buildChatContextWindowRuntimeOptions(raw, runtime = {}) {
   const toolPolicy =
     typeof runtime?.toolPolicy === 'string' && runtime.toolPolicy
       ? runtime.toolPolicy
-      : isUtools
-        ? 'strip'
-        : 'full'
+      : 'full'
 
   return {
     maxChars,
     maxMessages: isFinitePositiveNumber(resolved.maxMessages) ? resolved.maxMessages : Number.MAX_SAFE_INTEGER,
     maxTurns: isFinitePositiveNumber(resolved.maxTurns)
-      ? (isUtools ? Math.min(64, resolved.maxTurns + 2) : resolved.maxTurns)
+      ? resolved.maxTurns
       : Number.MAX_SAFE_INTEGER,
     keepRecentTurnsFull: isFinitePositiveNumber(resolved.keepRecentTurnsFull)
-      ? (isUtools ? Math.min(32, resolved.keepRecentTurnsFull + 1) : resolved.keepRecentTurnsFull)
+      ? resolved.keepRecentTurnsFull
       : Number.MAX_SAFE_INTEGER,
     maxPinnedAttachmentTurns: resolved.maxPinnedAttachmentTurns,
     allowSelectedAttachmentShrink: resolved.allowSelectedAttachmentShrink,

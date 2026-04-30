@@ -479,7 +479,7 @@
       :pending-attachments="pendingAttachments"
       :pending-image-attachments="pendingImageAttachments"
       :pending-file-attachments="pendingFileAttachments"
-      :show-builtin-hint="!!(selectedProvider && isUtoolsBuiltinProvider(selectedProvider))"
+      :show-builtin-hint="false"
       :pending-attachment-helpers="pendingAttachmentHelpers"
       :pending-attachment-actions="pendingAttachmentActions"
       :show-input-mode-tags="showInputModeTags"
@@ -550,19 +550,8 @@
         >
           <n-flex vertical :size="8">
             <n-text depth="3" style="font-size: 12px; word-break: break-all;">
-              {{ isUtoolsBuiltinProvider(p) ? 'uTools 内置 AI 服务商。模型在 uTools 设置中管理。' : (p.baseurl || '未配置基础地址') }}
+              {{ p.baseurl || '未配置基础地址' }}
             </n-text>
-            <n-flex v-if="isUtoolsBuiltinProvider(p)" align="center" wrap :size="8">
-              <n-button size="tiny" secondary :loading="utoolsAiModelsLoading" @click.stop="refreshBuiltinProviderModelsInChat(true)">
-                刷新模型
-              </n-button>
-              <n-button size="tiny" @click.stop="openBuiltinProviderSettingsFromChat">
-                打开 uTools AI 设置
-              </n-button>
-              <n-text v-if="utoolsAiModelsError" depth="3" style="font-size: 12px;">
-                {{ utoolsAiModelsError }}
-              </n-text>
-            </n-flex>
             <n-flex align="center" wrap :size="8">
               <n-flex v-for="m in (p.selectModels || [])" :key="m" align="center" :size="4">
                 <n-button
@@ -585,7 +574,7 @@
                 </n-tooltip>
               </n-flex>
               <n-text v-if="!p.selectModels || p.selectModels.length === 0" depth="3" style="font-size: 12px;">
-                {{ isUtoolsBuiltinProvider(p) ? '当前还没有启用任何 uTools AI 模型，请先打开 uTools AI 设置。' : '当前服务商还没有启用的模型，请到 设置 -> 服务商 中配置。' }}
+                当前服务商还没有启用的模型，请到 设置 -> 服务商 中配置。
               </n-text>
             </n-flex>
           </n-flex>
@@ -935,7 +924,7 @@
 </template>
 
 <script setup>
- import { computed, ref, reactive, watch, nextTick, h, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
+import { computed, ref, reactive, watch, nextTick, h, onMounted, onActivated, onDeactivated, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NCard,
@@ -996,21 +985,11 @@ import {
   SaveOutline
 } from '@vicons/ionicons5'
 
-import { useUtoolsEnterData } from '@/utils/utoolsListener.js'
 import { getOrCreateMCPClient, getMcpPrompt, releaseMCPClient, closePooledMCPClient, closeAllPooledMCPClients } from '@/utils/mcpClient'
 import { getTheme, getAgents, getProviders, getPrompts, getSkills, getMcpServers, getChatConfig, readSkillFile as readSkillRegistryFile, runSkillScript as runSkillRegistryScript, updateChatConfig } from '@/utils/configListener'
 import { buildRequestOverridesFromAgentModelParams, getAgentReasoningEffortOverride, normalizeAgentModelParams } from '@/utils/agentModelParams'
 import { parseAttachmentTextWithFallback, resetAttachmentTextParserWorker } from '@/utils/attachmentTextParser'
 import { buildSkillFileIndexLines, buildSkillScriptCatalogLines, getSkillDescription, getSkillFileIndex, getSkillScriptCatalog, isDirectorySkill, isRunnableSkillScriptPath } from '@/utils/skillUtils'
-import {
-  buildUtoolsAiMessages,
-  canUseUtoolsAi,
-  getUtoolsAiModelsState,
-  isUtoolsBuiltinProvider,
-  openUtoolsAiModelsSetting,
-  refreshUtoolsAiModels,
-  registerUtoolsAiToolFunctions
-} from '@/utils/utoolsAiProvider'
 import {
   AGENT_SKILL_LAZY_LOAD_GUIDANCE_LINES,
   buildBasePromptSelectionState,
@@ -1083,21 +1062,48 @@ import { extractAssistantTextFromPayloads } from '@/utils/chatAssistantResponse'
 import { stringifyToolResultForModel as stringifyToolResultForLlm } from '@/utils/toolResultForModel'
 import { consumeJsonEventStream } from '@/utils/streamJsonEvents'
 import { buildMcpArgsFromForm, normalizeMcpPromptArgumentDefinitions, resetMcpArgFormData } from '@/utils/mcpArgumentForm'
-import ChatAssistantMedia from './ChatAssistantMedia.vue'
-import ChatComposerPanel from './ChatComposerPanel.vue'
-import ChatContextWindowPreview from './ChatContextWindowPreview.vue'
-import ChatToolMessage from './ChatToolMessage.vue'
-import ChatUserAttachments from './ChatUserAttachments.vue'
-import McpArgumentForm from '@/components/McpArgumentForm.vue'
-import SessionTree from './SessionTree.vue'
 import { consumePendingChatSeed, onChatSeed } from '@/utils/chatSeedBridge'
+
+const ChatAssistantMedia = defineAsyncComponent({
+  loader: () => import('./ChatAssistantMedia.vue'),
+  suspensible: false
+})
+
+const ChatComposerPanel = defineAsyncComponent({
+  loader: () => import('./ChatComposerPanel.vue'),
+  suspensible: false
+})
+
+const ChatContextWindowPreview = defineAsyncComponent({
+  loader: () => import('./ChatContextWindowPreview.vue'),
+  suspensible: false
+})
+
+const ChatToolMessage = defineAsyncComponent({
+  loader: () => import('./ChatToolMessage.vue'),
+  suspensible: false
+})
+
+const ChatUserAttachments = defineAsyncComponent({
+  loader: () => import('./ChatUserAttachments.vue'),
+  suspensible: false
+})
+
+const McpArgumentForm = defineAsyncComponent({
+  loader: () => import('@/components/McpArgumentForm.vue'),
+  suspensible: false
+})
+
+const SessionTree = defineAsyncComponent({
+  loader: () => import('./SessionTree.vue'),
+  suspensible: false
+})
 
 const dialog = useDialog()
 const message = useMessage()
 const router = useRouter()
 
 const theme = getTheme()
-const utoolsEnterData = useUtoolsEnterData()
 
 const agents = getAgents()
 const providers = getProviders()
@@ -1105,8 +1111,6 @@ const prompts = getPrompts()
 const skills = getSkills()
 const mcpServers = getMcpServers()
 const chatConfig = getChatConfig()
-const { loading: utoolsAiModelsLoading, loadError: utoolsAiModelsError } = getUtoolsAiModelsState()
-
 function newId() {
   try {
     return crypto.randomUUID()
@@ -3520,22 +3524,6 @@ async function toggleDefaultModel(providerId, model) {
   }
 }
 
-function openBuiltinProviderSettingsFromChat() {
-  if (openUtoolsAiModelsSetting()) return
-  message.warning('当前环境不支持打开 uTools AI 模型设置')
-}
-
-async function refreshBuiltinProviderModelsInChat(showSuccess = false) {
-  try {
-    const list = await refreshUtoolsAiModels({ force: true })
-    if (showSuccess) {
-      message.success(`已同步 ${Array.isArray(list) ? list.length : 0} 个 uTools AI 模型`)
-    }
-  } catch (err) {
-    message.error('同步 uTools AI 模型失败：' + (err?.message || String(err)))
-  }
-}
-
 const systemButtonText = computed(() => {
   if (basePromptMode.value === 'custom') {
     const current = normalizePromptText(customSystemPrompt.value)
@@ -3579,25 +3567,7 @@ const headerHint = computed(() => {
   return ''
 })
 
-const effectiveHeaderHint = computed(() => {
-  if (!selectedProvider.value || !isUtoolsBuiltinProvider(selectedProvider.value)) {
-    return headerHint.value
-  }
-
-  if (!selectedProvider.value.selectModels?.length) {
-    return 'uTools AI 暂无可用模型，请先到 uTools AI 设置中启用。'
-  }
-
-  if (!selectedModel.value) {
-    return '当前模型为空，请先在顶部模型设置中选择。'
-  }
-
-  if (pendingImageAttachments.value.length) {
-    return 'uTools AI does not read image pixels directly here. Image uploads are sent with extracted metadata only.'
-  }
-
-  return ''
-})
+const effectiveHeaderHint = computed(() => headerHint.value)
 
 const toolModeDisplayText = computed(() => {
   const desired = String(toolMode.value || 'auto')
@@ -3690,7 +3660,7 @@ function createEmptyContextWindowInspection() {
 
 function buildContextWindowStats({ includeRequestDetails = false } = {}) {
   const rawMessages = Array.isArray(session.apiMessages) ? session.apiMessages : []
-  const providerKind = isUtoolsBuiltinProvider(selectedProvider.value) ? 'utools-ai' : 'openai-compatible'
+  const providerKind = 'openai-compatible'
   const currentToolsKey = getCurrentToolsKey()
   const toolEstimateFresh =
     !!lastBuiltRequestToolsStats.updatedAt && String(lastBuiltRequestToolsStats.key || '') === currentToolsKey
@@ -3783,7 +3753,7 @@ watch(
       return
     }
 
-    const providerKind = isUtoolsBuiltinProvider(selectedProvider.value) ? 'utools-ai' : 'openai-compatible'
+    const providerKind = 'openai-compatible'
     const previewConfig = contextWindowPreviewConfig.value
     const toolEstimateFresh =
       !!lastBuiltRequestToolsStats.updatedAt && String(lastBuiltRequestToolsStats.key || '') === String(getCurrentToolsKey() || '')
@@ -3853,9 +3823,6 @@ const contextWindowProviderHint = computed(() => {
       ? `附件轮次保留 ${stats.requestAttachmentCount}/${stats.rawAttachmentCount}；其中 ${stats.attachmentSummaryCount} 条较早内容会压缩成摘要。`
       : `附件轮次保留 ${stats.requestAttachmentCount}/${stats.rawAttachmentCount}；当前仍全部按完整轮次保留。`
     : ''
-  if (isUtoolsBuiltinProvider(selectedProvider.value)) {
-    return `${contextWindowHistoryFocusBehaviorText.value}uTools AI 路径会自动去掉历史 tool/tool_calls，只保留纯文本的用户与助手记录。${attachmentHint}${toolEstimateHint}`
-  }
   return `${contextWindowHistoryFocusBehaviorText.value}OpenAI 兼容路径会保留最近工具链，较老的工具轮次会自动压缩，避免无效上下文挤占窗口。${attachmentHint}${toolEstimateHint}`
 })
 
@@ -3879,7 +3846,7 @@ const contextWindowPreviewBudgetStats = computed(() => {
   const inspection = contextWindowPreviewInspection.value?.inspection
   const entries = contextWindowPreviewEntries.value
   const previewConfig = contextWindowPreviewConfig.value
-  const providerKind = isUtoolsBuiltinProvider(selectedProvider.value) ? 'utools-ai' : 'openai-compatible'
+  const providerKind = 'openai-compatible'
   const currentToolsKey = getCurrentToolsKey()
   const toolEstimateFresh =
     !!lastBuiltRequestToolsStats.updatedAt && String(lastBuiltRequestToolsStats.key || '') === currentToolsKey
@@ -3891,7 +3858,7 @@ const contextWindowPreviewBudgetStats = computed(() => {
   const historyCharsBudget = calculateHistoryContextCharBudget({ baseChars, reservedChars })
 
   return {
-    turnBudget: providerKind === 'utools-ai' ? Math.min(32, previewConfig.maxTurns + 2) : previewConfig.maxTurns,
+    turnBudget: previewConfig.maxTurns,
     turnUsed: entries.filter((entry) => entry?.kind === 'turn').length,
     messageBudget: previewConfig.maxMessages,
     messageUsed: Number(inspection?.messageCount || 0),
@@ -4336,13 +4303,12 @@ async function openChatNoteFromHref(href) {
 
 function openExternalHref(href) {
   try {
-    globalThis?.utools?.shellOpenExternal?.(href)
-  } catch {
-    // ignore
-  }
-
-  try {
-    if (!globalThis?.utools?.shellOpenExternal) window.open(href, '_blank', 'noopener')
+    const api = window?.electronAPI || globalThis?.electronAPI || null
+    if (api?.shell?.openExternal) {
+      api.shell.openExternal(href)
+      return
+    }
+    window.open(href, '_blank', 'noopener')
   } catch {
     // ignore
   }
@@ -5336,11 +5302,7 @@ function downloadChatImage(img) {
       })
       .catch((err) => {
         copyChatImageLink(img)
-        try {
-          globalThis?.utools?.shellOpenExternal?.(src)
-        } catch {
-          // ignore
-        }
+        openExternalHref(src)
         message.info('已复制图片链接。如无法直接下载，请在浏览器中打开后再保存。' + ((err && err.message) ? `（${err.message}）` : ''))
       })
     return
@@ -5350,7 +5312,7 @@ function downloadChatImage(img) {
   if (/^https?:\/\//i.test(src)) {
     copyToClipboard(src)
     try {
-      globalThis?.utools?.shellOpenExternal?.(src)
+      openExternalHref(src)
     } catch {
       // ignore
     }
@@ -5401,11 +5363,7 @@ function downloadChatVideo(video) {
       })
       .catch((err) => {
         copyChatVideoLink(video)
-        try {
-          globalThis?.utools?.shellOpenExternal?.(src)
-        } catch {
-          // ignore
-        }
+        openExternalHref(src)
         message.info('已复制视频链接。如无法直接下载，请在浏览器中打开后再保存。' + ((err && err.message) ? `（${err.message}）` : ''))
       })
     return
@@ -7123,7 +7081,6 @@ function tryApplyDefaultModelFromConfig(options = {}) {
   const list = Array.isArray(providers.value) ? providers.value : []
   const provider =
     (configuredProviderId ? list.find((p) => p?._id === configuredProviderId) : null) ||
-    list.find((p) => isUtoolsBuiltinProvider(p)) ||
     list[0]
   if (!provider) return false
 
@@ -7311,40 +7268,6 @@ function getRequestConfigOrHint() {
     message.warning('请先选择服务商 / 模型')
     showModelModal.value = true
     return null
-  }
-
-  if (isUtoolsBuiltinProvider(provider)) {
-    if (!canUseUtoolsAi()) {
-      message.warning('当前环境不支持内置 uTools AI 服务商，请在 uTools 插件环境中使用。')
-      return null
-    }
-
-    const model = String(selectedModel.value || '').trim()
-    if (!model) {
-      message.warning('请先选择模型')
-      showModelModal.value = true
-      return null
-    }
-
-    const imageMode = normalizeImageGenerationMode(imageGenerationMode.value)
-    const videoMode = normalizeImageGenerationMode(videoGenerationMode.value)
-    if (
-      imageMode === 'on' ||
-      (imageMode === 'auto' && isLikelyImageGenerationModel(model)) ||
-      videoMode === 'on' ||
-      (videoMode === 'auto' && isLikelyVideoGenerationModel(model))
-    ) {
-      message.warning('当前页面会将 uTools 内置 AI 按文本聊天处理，不支持直接图片/视频生成，请改用兼容 OpenAI 的服务商。')
-      return null
-    }
-
-    return {
-      providerKind: 'utools-ai',
-      model,
-      requestMode: 'chat',
-      imageGenerationPlaceholderMode: 'text',
-      supportsVision: false
-    }
   }
 
   const baseUrl = provider.baseurl
@@ -7674,252 +7597,6 @@ async function runChatRounds({
         }
       }
     }
-  }
-}
-
-function mergeUtoolsAiStreamText(previous, incoming) {
-  const next = String(incoming || '')
-  if (!next) {
-    return {
-      delta: '',
-      total: String(previous || '')
-    }
-  }
-
-  const current = String(previous || '')
-  if (current && next.startsWith(current)) {
-    return {
-      delta: next.slice(current.length),
-      total: next
-    }
-  }
-
-  return {
-    delta: next,
-    total: current + next
-  }
-}
-
-async function runUtoolsAiChatRound({ model, setCurrentAssistantDisplay, setAbortHandle, isAborted, abortState = null, sessionState = session }) {
-  const session = sessionState
-  if (!canUseUtoolsAi()) {
-    throw new Error('当前环境不支持 uTools 官方 AI')
-  }
-
-  throwIfAborted(abortState)
-  const bundle = await buildToolsBundleV2({ abortState })
-  const tools = Array.isArray(bundle?.tools) ? bundle.tools : []
-  const toolMap = bundle?.map instanceof Map ? bundle.map : new Map()
-  const assistantSegments = []
-  let assistantDisplay = null
-
-  const createStreamingAssistantDisplay = () => {
-    const msg = createDisplayMessage('assistant', '', {
-      thinking: '',
-      thinkingExpanded: false,
-      streaming: true,
-      render: 'md'
-    })
-    assistantSegments.push(msg)
-    assistantDisplay = msg
-    session.messages.push(msg)
-    setCurrentAssistantDisplay(msg)
-    return msg
-  }
-
-  const hasVisibleAssistantContent = (msg) => {
-    return !!String(msg?.content || '').trim() || !!String(msg?.thinking || '').trim()
-  }
-
-  const finalizeStreamingAssistantDisplay = async (options = {}) => {
-    const removeIfEmpty = !!options.removeIfEmpty
-    const current = assistantDisplay
-    if (!current) return null
-
-    await typewriterWaitIdle(current.id)
-    current.streaming = false
-    current.render = 'md'
-    typewriterStates.delete(current.id)
-
-    if (removeIfEmpty && !hasVisibleAssistantContent(current)) {
-      const idx = session.messages.findIndex((m) => m.id === current.id)
-      if (idx !== -1) session.messages.splice(idx, 1)
-    }
-
-    assistantDisplay = null
-    setCurrentAssistantDisplay(null)
-    scheduleScrollToBottom()
-    return current
-  }
-
-  const ensureStreamingAssistantDisplay = () => assistantDisplay || createStreamingAssistantDisplay()
-
-  createStreamingAssistantDisplay()
-
-  let streamedContent = ''
-  let streamedReasoning = ''
-  let toolInvokeCount = 0
-  const utoolsToolFallbackRecords = []
-
-  const buildUtoolsToolFallbackPrompt = () => {
-    const records = utoolsToolFallbackRecords
-      .map((record, index) => {
-        const serverName = String(record.serverName || '').trim()
-        const toolName = String(record.toolName || record.name || '').trim()
-        const args = truncateText(record.argsText || '{}', 1200, '(tool arguments truncated)')
-        const content = truncateText(record.content || '', 24000, '(tool result truncated)')
-        return [
-          `### 工具结果 ${index + 1}`,
-          serverName || toolName ? `工具：${[serverName, toolName].filter(Boolean).join(' / ')}` : '',
-          `参数：${args}`,
-          '结果：',
-          content || '（空结果）'
-        ].filter(Boolean).join('\n')
-      })
-      .filter(Boolean)
-      .join('\n\n')
-
-    return [
-      '系统补充：刚才已经完成了工具调用，但当前 uTools AI 工具续跑接口临时不可用。',
-      '请直接基于下面的工具结果回答用户刚才的问题；如果资料不足，请说明不足之处。',
-      records
-    ].filter(Boolean).join('\n\n')
-  }
-
-  const requestUtoolsAi = (requestApiMessages, requestTools = tools) => {
-    return window.utools.ai(
-      {
-        model,
-        messages: buildUtoolsAiMessages({
-          systemContent: systemContent.value,
-          apiMessages: requestApiMessages
-        }),
-        ...(requestTools.length ? { tools: requestTools } : {})
-      },
-      (chunk) => {
-        if (abortState?.aborted || isAborted?.()) return
-        const contentState = mergeUtoolsAiStreamText(streamedContent, chunk?.content)
-        streamedContent = contentState.total
-        if (contentState.delta) {
-          ensureStreamingAssistantDisplay()
-          typewriterEnqueue(assistantDisplay, contentState.delta)
-        }
-
-        const reasoningState = mergeUtoolsAiStreamText(streamedReasoning, chunk?.reasoning_content)
-        streamedReasoning = reasoningState.total
-        if (reasoningState.delta) {
-          ensureStreamingAssistantDisplay()
-          assistantDisplay.thinking = String(assistantDisplay.thinking || '') + reasoningState.delta
-          scheduleScrollToBottom()
-        }
-      }
-    )
-  }
-
-  const unregisterToolFns = registerUtoolsAiToolFunctions({
-    tools,
-    invokeTool: async (name, argsObj) => {
-      throwIfAborted(abortState)
-      toolInvokeCount += 1
-      await finalizeStreamingAssistantDisplay({ removeIfEmpty: true })
-
-      const argsText = stableStringify(argsObj || {})
-      const exec = await executeToolCall(
-        {
-          id: `utools_call_${newId()}`,
-          type: 'function',
-          function: {
-            name,
-            arguments: argsText || '{}'
-          }
-        },
-        toolMap,
-        streamedReasoning,
-        abortState
-      )
-
-      const raw = String(exec?.content || '')
-      utoolsToolFallbackRecords.push({
-        name,
-        argsText,
-        content: raw,
-        serverName: exec?.serverName || '',
-        toolName: exec?.toolName || name
-      })
-      const parsed = safeJsonParse(raw)
-      if (exec?.serverName === '内置联网' || exec?.toolName === 'web_search' || exec?.toolName === 'web_read') {
-        return raw
-      }
-      return parsed.ok ? parsed.value : raw
-    }
-  })
-
-  try {
-    const requestApiMessages = buildRequestApiMessages('utools-ai', { tools })
-    let request = requestUtoolsAi(requestApiMessages, tools)
-    setAbortHandle(request)
-    let result = null
-    try {
-      result = await request
-    } catch (err) {
-      const errText = err?.message || String(err)
-      if (!toolInvokeCount || !shouldRetryToolContinuationAsPlainText(errText) || abortState?.aborted || isAborted?.()) throw err
-      await finalizeStreamingAssistantDisplay({ removeIfEmpty: true })
-      message.warning('当前 uTools AI 工具续跑接口临时不可用，已改为用纯文本工具结果继续回答。')
-      request = requestUtoolsAi(
-        [
-          ...requestApiMessages,
-          {
-            role: 'user',
-            content: buildUtoolsToolFallbackPrompt()
-          }
-        ],
-        []
-      )
-      setAbortHandle(request)
-      result = await request
-    }
-
-    if (isAborted?.() || abortState?.aborted) throw createAbortError()
-
-    const finalContentState = mergeUtoolsAiStreamText(streamedContent, result?.content)
-    streamedContent = finalContentState.total
-    if (finalContentState.delta) {
-      ensureStreamingAssistantDisplay()
-      typewriterEnqueue(assistantDisplay, finalContentState.delta)
-    }
-
-    const finalReasoningState = mergeUtoolsAiStreamText(streamedReasoning, result?.reasoning_content)
-    streamedReasoning = finalReasoningState.total
-    if (finalReasoningState.delta) {
-      ensureStreamingAssistantDisplay()
-      assistantDisplay.thinking = String(assistantDisplay.thinking || '') + finalReasoningState.delta
-    }
-
-    await finalizeStreamingAssistantDisplay({ removeIfEmpty: true })
-
-    session.apiMessages.push({
-      role: 'assistant',
-      content: String(streamedContent || ''),
-      ...(streamedReasoning ? { reasoning_content: streamedReasoning } : {})
-    })
-    const assistantApiIndex = session.apiMessages.length - 1
-    const visibleSegments = assistantSegments.filter((segment) => session.messages.some((m) => m.id === segment.id))
-    visibleSegments.forEach((segment) => {
-      segment.apiIndex = assistantApiIndex
-    })
-
-    if (!visibleSegments.some((segment) => hasVisibleAssistantContent(segment)) && toolInvokeCount === 0) {
-      const emptyMsg = createDisplayMessage('assistant', buildEmptyAssistantResponseText(session))
-      emptyMsg.apiIndex = assistantApiIndex
-      session.messages.push(emptyMsg)
-    }
-
-    setCurrentAssistantDisplay(null)
-    await scrollToBottom()
-  } finally {
-    unregisterToolFns()
-    setAbortHandle(null)
   }
 }
 
@@ -9083,98 +8760,35 @@ async function runChatSession({
   try {
     if (typeof prepare === 'function') await prepare()
 
-    if (providerKind === 'utools-ai') {
-      await runUtoolsAiChatRound({
-        model,
-        setCurrentAssistantDisplay: (m) => {
-          currentAssistantDisplay = m
-        },
-        setAbortHandle: (handle) => {
-          requestHandle = handle
-        },
-        isAborted: () => requestAbortState.aborted,
-        abortState: requestAbortState,
-        sessionState
-      })
-    } else {
-      requestHandle = new AbortController()
-      if (requestAbortState.aborted) requestHandle.abort()
-      if (requestMode === 'image-generation') {
-        try {
-          await runImageGenerationRound({
-            baseUrl,
-            apiKey,
-            model,
-            signal: requestHandle.signal,
-            placeholderMode: imageGenerationPlaceholderMode,
-            setCurrentAssistantDisplay: (m) => {
-              currentAssistantDisplay = m
-            },
-            abortState: requestAbortState,
-            sessionState
-          })
-        } catch (err) {
-          if (!shouldFallbackMediaRequestToChat(err, 'image')) throw err
-          removeDisplayMessageById(currentAssistantDisplay?.id, sessionState)
-          currentAssistantDisplay = null
-          requestHandle = new AbortController()
-          if (requestAbortState.aborted) requestHandle.abort()
-          message.warning('图片生成接口不兼容当前返回，已自动回退为文本聊天。')
-          await runChatRounds({
-            baseUrl,
-            apiKey,
-            model,
-            signal: requestHandle.signal,
-            assistantPlaceholderMode: imageGenerationPlaceholderMode,
-            supportsVision,
-            setCurrentAssistantDisplay: (m) => {
-              currentAssistantDisplay = m
-            },
-            abortState: requestAbortState,
-            sessionState
-          })
-        }
-      } else if (requestMode === 'video-generation') {
-        try {
-          await runVideoGenerationRound({
-            baseUrl,
-            apiKey,
-            model,
-            signal: requestHandle.signal,
-            placeholderMode: videoGenerationPlaceholderMode,
-            setCurrentAssistantDisplay: (m) => {
-              currentAssistantDisplay = m
-            },
-            abortState: requestAbortState,
-            sessionState
-          })
-        } catch (err) {
-          if (!shouldFallbackMediaRequestToChat(err, 'video')) throw err
-          removeDisplayMessageById(currentAssistantDisplay?.id, sessionState)
-          currentAssistantDisplay = null
-          requestHandle = new AbortController()
-          if (requestAbortState.aborted) requestHandle.abort()
-          message.warning('视频生成接口不兼容当前返回，已自动回退为文本聊天。')
-          await runChatRounds({
-            baseUrl,
-            apiKey,
-            model,
-            signal: requestHandle.signal,
-            assistantPlaceholderMode: videoGenerationPlaceholderMode,
-            supportsVision,
-            setCurrentAssistantDisplay: (m) => {
-              currentAssistantDisplay = m
-            },
-            abortState: requestAbortState,
-            sessionState
-          })
-        }
-      } else {
+    requestHandle = new AbortController()
+    if (requestAbortState.aborted) requestHandle.abort()
+    if (requestMode === 'image-generation') {
+      try {
+        await runImageGenerationRound({
+          baseUrl,
+          apiKey,
+          model,
+          signal: requestHandle.signal,
+          placeholderMode: imageGenerationPlaceholderMode,
+          setCurrentAssistantDisplay: (m) => {
+            currentAssistantDisplay = m
+          },
+          abortState: requestAbortState,
+          sessionState
+        })
+      } catch (err) {
+        if (!shouldFallbackMediaRequestToChat(err, 'image')) throw err
+        removeDisplayMessageById(currentAssistantDisplay?.id, sessionState)
+        currentAssistantDisplay = null
+        requestHandle = new AbortController()
+        if (requestAbortState.aborted) requestHandle.abort()
+        message.warning('图片生成接口不兼容当前返回，已自动回退为文本聊天。')
         await runChatRounds({
           baseUrl,
           apiKey,
           model,
           signal: requestHandle.signal,
+          assistantPlaceholderMode: imageGenerationPlaceholderMode,
           supportsVision,
           setCurrentAssistantDisplay: (m) => {
             currentAssistantDisplay = m
@@ -9183,6 +8797,54 @@ async function runChatSession({
           sessionState
         })
       }
+    } else if (requestMode === 'video-generation') {
+      try {
+        await runVideoGenerationRound({
+          baseUrl,
+          apiKey,
+          model,
+          signal: requestHandle.signal,
+          placeholderMode: videoGenerationPlaceholderMode,
+          setCurrentAssistantDisplay: (m) => {
+            currentAssistantDisplay = m
+          },
+          abortState: requestAbortState,
+          sessionState
+        })
+      } catch (err) {
+        if (!shouldFallbackMediaRequestToChat(err, 'video')) throw err
+        removeDisplayMessageById(currentAssistantDisplay?.id, sessionState)
+        currentAssistantDisplay = null
+        requestHandle = new AbortController()
+        if (requestAbortState.aborted) requestHandle.abort()
+        message.warning('视频生成接口不兼容当前返回，已自动回退为文本聊天。')
+        await runChatRounds({
+          baseUrl,
+          apiKey,
+          model,
+          signal: requestHandle.signal,
+          assistantPlaceholderMode: videoGenerationPlaceholderMode,
+          supportsVision,
+          setCurrentAssistantDisplay: (m) => {
+            currentAssistantDisplay = m
+          },
+          abortState: requestAbortState,
+          sessionState
+        })
+      }
+    } else {
+      await runChatRounds({
+        baseUrl,
+        apiKey,
+        model,
+        signal: requestHandle.signal,
+        supportsVision,
+        setCurrentAssistantDisplay: (m) => {
+          currentAssistantDisplay = m
+        },
+        abortState: requestAbortState,
+        sessionState
+      })
     }
   } catch (err) {
     if (requestAbortState.aborted || isAbortError(err)) {
@@ -10196,7 +9858,7 @@ async function getCurrentTurnAttachmentCharBudget(providerKind = 'openai-compati
   }
 
   const historyBudget = getHistoryContextCharBudget({ tools })
-  const boundedBudget = Math.max(4000, Math.floor(historyBudget * (providerKind === 'utools-ai' ? 0.8 : 0.85)))
+  const boundedBudget = Math.max(4000, Math.floor(historyBudget * 0.85))
   return Math.min(MAX_ATTACHMENT_TEXT_CHARS, boundedBudget)
 }
 
@@ -11947,7 +11609,7 @@ function getWebOperationsApi() {
 }
 
 function getWebToolMissingText() {
-  return '内置联网服务不可用：preload 未注入 webOperations。请在 uTools 插件环境中运行，或重新构建插件。'
+  return '内置联网服务不可用：preload 未注入 webOperations。请检查 Electron preload 是否已加载，或重新构建应用。'
 }
 
 const WEB_TOOL_RESULT_GUIDANCE = '这些结果来自本次运行的联网工具。请优先基于工具结果回答，不要因为模型知识截止时间更早而反复搜索同一问题；资料不足时说明不足。'
@@ -13186,21 +12848,6 @@ async function send() {
   saveActiveChatWindowSnapshot()
 }
 
-const lastEnterKey = ref('')
-watch(
-  utoolsEnterData,
-  (val) => {
-    if (val?.code !== 'Ai' || val?.type !== 'over') return
-    const payload = typeof val.payload === 'string' ? val.payload : ''
-    const key = `${val.code}|${val.type}|${payload}`
-    if (!payload || key === lastEnterKey.value) return
-    lastEnterKey.value = key
-
-    input.value = payload
-    if (!sending.value) send()
-  },
-  { immediate: true }
-)
 </script>
 
 <style scoped>

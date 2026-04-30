@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Electron + Vue 3 AI Tools Desktop App (完全独立的桌面应用，含 SQLite 存储)",
+  "description": "Electron + Vue 3 AI Tools Desktop App ",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c auto \"npm:dev:vite\" \"npm:dev:electron\"",
@@ -15,21 +15,9 @@
     "start": "electron ."
   },
   "dependencies": {
-    "cropperjs": "^1.6.2",
-    "echarts": "^6.0.0",
-    "highlight.js": "^11.11.1",
-    "jszip": "^3.10.1",
-    "katex": "^0.16.22",
-    "mammoth": "^1.10.0",
-    "md-editor-v3": "^6.3.1",
-    "mermaid": "^11.9.0",
     "mysql2": "^3.22.2",
-    "path-browserify": "^1.0.1",
-    "pdfjs-dist": "^5.4.149",
     "sql.js": "^1.12.0",
-    "vue": "^3.5.13",
-    "vue-router": "^4.6.4",
-    "xlsx": "^0.18.5"
+    "vue": "^3.5.13"
   },
   "devDependencies": {
     "@vicons/carbon": "^0.13.0",
@@ -38,16 +26,28 @@
     "@vicons/ionicons5": "^0.13.0",
     "@vicons/tabler": "^0.13.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "cropperjs": "^1.6.2",
     "concurrently": "^9.0.1",
     "cross-env": "^7.0.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "electron-store": "^10.0.0",
+    "echarts": "^6.0.0",
+    "highlight.js": "^11.11.1",
+    "jszip": "^3.10.1",
+    "katex": "^0.16.22",
+    "mammoth": "^1.10.0",
     "naive-ui": "^2.43.2",
+    "md-editor-v3": "^6.3.1",
+    "mermaid": "^11.9.0",
+    "path-browserify": "^1.0.1",
+    "pdfjs-dist": "^5.4.149",
     "utools-api-types": "^7.5.1",
     "vfonts": "^0.0.3",
     "vite": "^6.0.11",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.1",
+    "vue-router": "^4.6.4",
+    "xlsx": "^0.18.5"
   },
   "overrides": {
     "tar": "7.5.9"
@@ -59,6 +59,9 @@
       "electron/**/*",
       "dist/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "electron/preload-utils/helpers/**/*"
     ],
     "extraResources": [
       {

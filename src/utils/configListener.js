@@ -1,5 +1,4 @@
 import { computed, ref } from 'vue';
-import { initUtoolsAiProvider, mergeUtoolsBuiltinProvider } from '@/utils/utoolsAiProvider';
 import { DEFAULT_CHAT_CONTEXT_WINDOW_CONFIG } from '@/utils/chatContextWindow';
 import { getDefaultNoteSecurityConfig } from '@/utils/noteEncryption';
 import { DEFAULT_NOTE_EDITOR_CONFIG } from '@/utils/noteTemplateConfig';
@@ -126,7 +125,7 @@ function getGlobalConfigApi() {
 function requireGlobalConfigApi() {
     const api = getGlobalConfigApi();
     if (!api) {
-        throw new Error('globalConfig 未注入（请在 uTools 插件环境中运行）');
+        throw new Error('globalConfig 未注入，请在 Electron 桌面环境中运行。');
     }
     return api;
 }
@@ -143,20 +142,38 @@ function init() {
         console.warn('初始化全局配置失败：', err);
     }
 
+    const applyConfigDetail = (detail) => {
+        if (detail && typeof detail === 'object') {
+            globalConfig.value = detail;
+        }
+    };
+
+    let detachConfigChangedListener = null;
     try {
-        window.addEventListener('globalConfigChanged', (e) => {
-            const detail = e?.detail;
-            if (detail && typeof detail === 'object') {
-                globalConfig.value = detail;
-            }
-        });
+        if (typeof window?.electronAPI?.onConfigChanged === 'function') {
+            detachConfigChangedListener = window.electronAPI.onConfigChanged((data) => {
+                applyConfigDetail(data?.detail);
+            });
+        } else {
+            const fallbackListener = (e) => {
+                applyConfigDetail(e?.detail);
+            };
+            window.addEventListener('globalConfigChanged', fallbackListener);
+            detachConfigChangedListener = () => {
+                window.removeEventListener('globalConfigChanged', fallbackListener);
+            };
+        }
     } catch (err) {
         console.warn('监听 globalConfigChanged 失败：', err);
     }
 
-    initUtoolsAiProvider().catch((err) => {
-        console.warn('初始化 uTools 官方 AI 模型失败：', err);
-    });
+    if (typeof window !== 'undefined') {
+        window.addEventListener('beforeunload', () => {
+            try {
+                detachConfigChangedListener?.();
+            } catch {}
+        }, { once: true });
+    }
 }
 
 // 辅助：将对象转换为数组
@@ -187,11 +204,11 @@ export function deleteAgent(id) {
 
 // providers
 export function getProviders() {
-    return computed(() => toArray(globalConfig.value.providers).map((item) => mergeUtoolsBuiltinProvider(item)));
+    return computed(() => toArray(globalConfig.value.providers));
 }
 
 export function getProviderById(id) {
-    return computed(() => mergeUtoolsBuiltinProvider(globalConfig.value.providers[id]));
+    return computed(() => globalConfig.value.providers[id]);
 }
 
 export function addProvider(item) {

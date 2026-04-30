@@ -4,7 +4,7 @@
 
 function rejectNotInjected(methodName) {
   return Promise.reject(
-    new Error(`notebookRuntime.${methodName} 未注入（请在 uTools 插件环境中运行）`)
+    new Error(`notebookRuntime.${methodName} 未注入，请检查 Electron preload 是否已加载。`)
   )
 }
 

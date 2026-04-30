@@ -1355,12 +1355,13 @@ async function handlePreviewLinkClick(e) {
 
   if (/^https?:\/\//i.test(href)) {
     try {
-      globalThis?.utools?.shellOpenExternal?.(href);
+      const api = window?.electronAPI || globalThis?.electronAPI || null;
+      api?.shell?.openExternal?.(href);
     } catch {
       // ignore
     }
     try {
-      if (!globalThis?.utools?.shellOpenExternal) window.open(href, '_blank', 'noopener');
+      if (!(window?.electronAPI || globalThis?.electronAPI)?.shell?.openExternal) window.open(href, '_blank', 'noopener');
     } catch {
       // ignore
     }
@@ -1369,7 +1370,8 @@ async function handlePreviewLinkClick(e) {
 
   if (/^mailto:/i.test(href)) {
     try {
-      globalThis?.utools?.shellOpenExternal?.(href);
+      const api = window?.electronAPI || globalThis?.electronAPI || null;
+      api?.shell?.openExternal?.(href);
     } catch {
       // ignore
     }

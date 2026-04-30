@@ -70,45 +70,7 @@
       :title="modalTitle"
       style="width: 720px; max-width: 95%;"
     >
-      <n-flex v-if="isBuiltinEdit" vertical :size="12">
-        <n-text depth="2">
-          这是 uTools 官方 AI 的内置服务商。模型列表来自 uTools 统一的 AI 模型设置页，不在本插件里单独保存 `baseurl/apikey`。
-        </n-text>
-
-        <n-flex align="center" wrap :size="8">
-          <n-button size="small" secondary @click="openBuiltinSettings">
-            打开 uTools AI 模型设置
-          </n-button>
-          <n-button size="small" @click="refreshBuiltinModels(true)" :loading="loadingModels">
-            刷新模型列表
-          </n-button>
-          <n-text depth="3" style="font-size: 12px;">
-            当前已同步 {{ builtinModelRows.length }} 个模型
-          </n-text>
-        </n-flex>
-
-        <n-text v-if="builtinModelsError" type="warning" style="font-size: 12px;">
-          {{ builtinModelsError }}
-        </n-text>
-        <n-input
-          v-model:value="builtinModelFilterKeyword"
-          clearable
-          placeholder="筛选模型，支持按 ID、名称、描述搜索"
-        />
-
-        <n-data-table
-          :columns="builtinModelColumns"
-          :data="filteredBuiltinModelRows"
-          :loading="loadingModels"
-          :max-height="360"
-          :pagination="false"
-          :bordered="false"
-          size="small"
-        />
-      </n-flex>
-
       <n-form
-        v-else
         ref="formRef"
         :model="formData"
         label-placement="left"
@@ -171,19 +133,9 @@
 
       <template #footer>
         <n-flex justify="space-between" align="center" :size="12">
-          <n-flex v-if="isBuiltinEdit" :size="8">
-            <n-button size="small" secondary @click="openBuiltinSettings">
-              打开设置
-            </n-button>
-            <n-button size="small" @click="refreshBuiltinModels(true)" :loading="loadingModels">
-              刷新模型
-            </n-button>
-          </n-flex>
-          <span v-else />
-
           <n-flex justify="flex-end" :size="12">
-            <n-button @click="showModal = false">{{ isBuiltinEdit ? '关闭' : '取消' }}</n-button>
-            <n-button v-if="!isBuiltinEdit" type="primary" @click="handleSave" :loading="saving">
+            <n-button @click="showModal = false">取消</n-button>
+            <n-button type="primary" @click="handleSave" :loading="saving">
               保存
             </n-button>
           </n-flex>
@@ -217,13 +169,6 @@ import {
 } from '@vicons/fluent'
 
 import {
-  canManageUtoolsAiModels,
-  getUtoolsAiModelsState,
-  isUtoolsBuiltinProvider,
-  openUtoolsAiModelsSetting,
-  refreshUtoolsAiModels
-} from '@/utils/utoolsAiProvider'
-import {
   getProviders,
   addProvider,
   updateProvider,
@@ -248,13 +193,7 @@ const formRef = ref(null)
 const showModal = ref(false)
 const modalMode = ref('add')
 const currentEditId = ref(null)
-const currentEditBuiltin = ref(false)
-
-const { models: builtinModels, loadError: builtinModelsError } = getUtoolsAiModelsState()
-
-const isBuiltinEdit = computed(() => modalMode.value === 'edit' && currentEditBuiltin.value)
 const modalTitle = computed(() => {
-  if (isBuiltinEdit.value) return 'uTools 官方 AI'
   return modalMode.value === 'add' ? '新增服务商' : '编辑服务商'
 })
 
@@ -267,7 +206,6 @@ const formData = reactive({
 
 const availableModels = ref([])
 const modelFilterKeyword = ref('')
-const builtinModelFilterKeyword = ref('')
 const loadingModels = ref(false)
 
 const modelColumns = [
@@ -306,37 +244,6 @@ const modelColumns = [
   }
 ]
 
-const builtinModelColumns = [
-  {
-    title: '模型 ID',
-    key: 'id',
-    ellipsis: { tooltip: true }
-  },
-  {
-    title: '显示名',
-    key: 'label',
-    ellipsis: { tooltip: true }
-  },
-  {
-    title: '说明',
-    key: 'description',
-    ellipsis: { tooltip: true },
-    render(row) {
-      return row.description || '-'
-    }
-  },
-  {
-    title: '成本',
-    key: 'cost',
-    width: 90,
-    render(row) {
-      return Number.isFinite(Number(row.cost)) ? String(row.cost) : '-'
-    }
-  }
-]
-
-const builtinModelRows = computed(() => (builtinModels.value || []).map((item) => ({ ...item })))
-
 function normalizeModelFilterKeyword(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -353,17 +260,7 @@ const filteredAvailableModels = computed(() => {
   )
 })
 
-const filteredBuiltinModelRows = computed(() => {
-  const keyword = normalizeModelFilterKeyword(builtinModelFilterKeyword.value)
-  return builtinModelRows.value.filter((row) =>
-    matchesModelFilter(row, keyword, ['id', 'label', 'description'])
-  )
-})
-
 function getProviderSummary(provider) {
-  if (isUtoolsBuiltinProvider(provider)) {
-    return 'uTools 官方 AI，模型由 uTools 统一设置与管理'
-  }
   return provider?.baseurl || '未配置接口地址'
 }
 
@@ -456,30 +353,6 @@ function extractModelsFromResponseData(data) {
   return []
 }
 
-async function refreshBuiltinModels(showSuccess = false) {
-  if (!canManageUtoolsAiModels()) {
-    message.warning('当前环境不支持读取 uTools 官方 AI 模型列表')
-    return
-  }
-
-  loadingModels.value = true
-  try {
-    const list = await refreshUtoolsAiModels({ force: true })
-    if (showSuccess) {
-      message.success(`已同步 ${Array.isArray(list) ? list.length : 0} 个 uTools AI 模型`)
-    }
-  } catch (err) {
-    message.error('同步 uTools AI 模型失败：' + (err?.message || String(err)))
-  } finally {
-    loadingModels.value = false
-  }
-}
-
-function openBuiltinSettings() {
-  if (openUtoolsAiModelsSetting()) return
-  message.warning('当前环境不支持打开 uTools AI 模型设置页')
-}
-
 async function refreshModels() {
   if (!formData.baseurl || !formData.apikey) {
     message.warning('请先填写接口地址和 API 密钥，再拉取模型列表')
@@ -564,8 +437,6 @@ function resetCustomForm() {
 function openAddModal() {
   modalMode.value = 'add'
   currentEditId.value = null
-  currentEditBuiltin.value = false
-  builtinModelFilterKeyword.value = ''
   resetCustomForm()
   formRef.value?.restoreValidation()
   showModal.value = true
@@ -574,15 +445,7 @@ function openAddModal() {
 async function openEditModal(provider) {
   modalMode.value = 'edit'
   currentEditId.value = provider._id
-  currentEditBuiltin.value = !!provider.builtin || isUtoolsBuiltinProvider(provider)
-  builtinModelFilterKeyword.value = ''
   modelFilterKeyword.value = ''
-
-  if (isBuiltinEdit.value) {
-    showModal.value = true
-    await refreshBuiltinModels()
-    return
-  }
 
   formData.name = provider.name || ''
   formData.baseurl = provider.baseurl || ''
@@ -636,7 +499,7 @@ function handleSave() {
 }
 
 function confirmDelete(provider) {
-  if (provider?.builtin || isUtoolsBuiltinProvider(provider)) {
+  if (provider?.builtin) {
     message.warning('内置 Provider 不可删除')
     return
   }
@@ -658,7 +521,7 @@ function confirmDelete(provider) {
 }
 
 watch(showModal, (val) => {
-  if (val || isBuiltinEdit.value) return
+  if (val) return
   availableModels.value = []
 })
 </script>

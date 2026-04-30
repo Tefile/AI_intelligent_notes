@@ -15,7 +15,7 @@ export function describeFileOperationsError(err, featureLabel = '当前功能') 
     const label = String(featureLabel || '当前功能').trim() || '当前功能';
 
     if (raw.includes('未注入')) {
-        return `${label}依赖 uTools preload 注入的 fileOperations。当前环境未注入，请在 uTools 插件环境中运行。`;
+        return `${label}依赖 preload 注入的 fileOperations。当前环境未注入，请检查 Electron preload 是否已加载。`;
     }
 
     if (raw.includes('数据存储根目录未配置')) {
@@ -44,7 +44,7 @@ export function describeFileOperationsError(err, featureLabel = '当前功能') 
 
 function rejectNotInjected(methodName) {
     return Promise.reject(
-        new Error(`fileOperations.${methodName} 未注入（请在 uTools 插件环境中运行）`)
+        new Error(`fileOperations.${methodName} 未注入，请检查 Electron preload 是否已加载。`)
     );
 }
 

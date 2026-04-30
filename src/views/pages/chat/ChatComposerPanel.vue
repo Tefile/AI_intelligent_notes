@@ -11,76 +11,25 @@
       />
 
       <div class="chat-composer">
-        <div v-if="showInlineAgentPicker" class="chat-inline-agent-picker">
-          <div class="chat-inline-agent-picker__header">
-            <span>智能体</span>
-            <span class="chat-inline-agent-picker__query">{{ inlineAgentPickerHeaderText }}</span>
-          </div>
+        <ChatInlineAgentPicker
+          v-if="showInlineAgentPicker"
+          :header-text="inlineAgentPickerHeaderText"
+          :suggestions="inlineAgentSuggestions"
+          :active-index="inlineAgentActiveIndex"
+          :selected-agent-id="selectedAgentId"
+          @apply="(value) => emit('apply-inline-agent-suggestion', value)"
+        />
 
-          <div ref="inlineAgentListRef" class="chat-inline-agent-list">
-            <button
-              v-for="(agent, index) in inlineAgentSuggestions"
-              :key="agent.value"
-              type="button"
-              class="chat-inline-agent-item"
-              :data-inline-picker-index="index"
-              :class="{
-                'is-active': index === inlineAgentActiveIndex,
-                'is-selected': agent.value === selectedAgentId
-              }"
-              :title="[agent.label, agent.name && agent.name !== agent.id ? `@${agent.id}` : '', agent.providerLabel, agent.model].filter(Boolean).join('\n')"
-              @mousedown.prevent="emit('apply-inline-agent-suggestion', agent.value)"
-            >
-              <div class="chat-inline-agent-item__main">
-                <span class="chat-inline-agent-item__name">{{ agent.label }}</span>
-                <span v-if="agent.name && agent.name !== agent.id" class="chat-inline-agent-item__id">@{{ agent.id }}</span>
-              </div>
-              <div class="chat-inline-agent-item__meta">
-                <span v-if="agent.providerLabel">{{ agent.providerLabel }}</span>
-                <span v-if="agent.model">{{ agent.model }}</span>
-                <span v-if="agent.value === selectedAgentId" class="chat-inline-agent-item__tag">已选中</span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="showInlineCommandPicker" class="chat-inline-agent-picker">
-          <div class="chat-inline-agent-picker__header">
-            <span>{{ inlineCommandPickerTitle }}</span>
-            <span class="chat-inline-agent-picker__query">{{ inlineCommandPickerHeaderText }}</span>
-          </div>
-
-          <div ref="inlineCommandListRef" class="chat-inline-agent-list">
-            <button
-              v-for="(item, index) in inlineCommandSuggestions"
-              :key="`${inlineCommandMode}-${inlineCommandType}-${item.value}`"
-              type="button"
-              class="chat-inline-agent-item"
-              :data-inline-picker-index="index"
-              :class="{
-                'is-active': index === inlineCommandActiveIndex,
-                'is-selected': item.selected,
-                'is-disabled': item.disabled
-              }"
-              :disabled="item.disabled"
-              :title="item.title || ''"
-              @mousedown.prevent="emit('apply-inline-command-suggestion', item)"
-            >
-              <div class="chat-inline-command-item__body">
-                <div class="chat-inline-agent-item__main">
-                  <span class="chat-inline-agent-item__name">{{ item.label }}</span>
-                  <span v-if="item.id && item.id !== item.label" class="chat-inline-agent-item__id">{{ item.id }}</span>
-                </div>
-                <div v-if="item.description" class="chat-inline-command-item__description">{{ item.description }}</div>
-              </div>
-
-              <div class="chat-inline-agent-item__meta">
-                <span v-if="item.meta">{{ item.meta }}</span>
-                <span v-if="item.selected && item.selectedTag" class="chat-inline-agent-item__tag">{{ item.selectedTag }}</span>
-              </div>
-            </button>
-          </div>
-        </div>
+        <ChatInlineCommandPicker
+          v-if="showInlineCommandPicker"
+          :title="inlineCommandPickerTitle"
+          :header-text="inlineCommandPickerHeaderText"
+          :suggestions="inlineCommandSuggestions"
+          :active-index="inlineCommandActiveIndex"
+          :mode="inlineCommandMode"
+          :type="inlineCommandType"
+          @apply="(item) => emit('apply-inline-command-suggestion', item)"
+        />
 
         <n-input
           ref="composerInputRef"
@@ -411,7 +360,7 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import { defineAsyncComponent, ref } from 'vue'
 import { NButton, NCard, NFlex, NIcon, NInput, NTag, NText, NTooltip } from 'naive-ui'
 import { SkillLevelIntermediate, BareMetalServer02 } from '@vicons/carbon'
 import { Trash, Magento } from '@vicons/fa'
@@ -433,6 +382,16 @@ import {
 } from '@vicons/ionicons5'
 
 import ChatPendingAttachments from './ChatPendingAttachments.vue'
+const ChatInlineAgentPicker = defineAsyncComponent({
+  loader: () => import('./ChatInlineAgentPicker.vue'),
+  suspensible: false
+})
+
+const ChatInlineCommandPicker = defineAsyncComponent({
+  loader: () => import('./ChatInlineCommandPicker.vue'),
+  suspensible: false
+})
+
 
 const props = defineProps({
   attachAccept: {
@@ -643,33 +602,6 @@ const emit = defineEmits([
 
 const fileInputRef = ref(null)
 const composerInputRef = ref(null)
-const inlineAgentListRef = ref(null)
-const inlineCommandListRef = ref(null)
-
-function scrollActiveInlinePickerItemIntoView(listEl, index) {
-  if (!listEl || index < 0) return
-  const item = listEl.querySelector(`[data-inline-picker-index="${index}"]`)
-  if (!item) return
-  item.scrollIntoView({ block: 'nearest' })
-}
-
-watch(
-  () => [props.showInlineAgentPicker, props.inlineAgentActiveIndex, props.inlineAgentSuggestions.length],
-  () => {
-    if (!props.showInlineAgentPicker) return
-    nextTick(() => scrollActiveInlinePickerItemIntoView(inlineAgentListRef.value, props.inlineAgentActiveIndex))
-  },
-  { flush: 'post' }
-)
-
-watch(
-  () => [props.showInlineCommandPicker, props.inlineCommandActiveIndex, props.inlineCommandSuggestions.length],
-  () => {
-    if (!props.showInlineCommandPicker) return
-    nextTick(() => scrollActiveInlinePickerItemIntoView(inlineCommandListRef.value, props.inlineCommandActiveIndex))
-  },
-  { flush: 'post' }
-)
 
 function triggerFilePicker() {
   fileInputRef.value?.click?.()

@@ -147,12 +147,16 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { NIcon, NImage, NImageGroup } from 'naive-ui'
 import LazyMarkdownPreview from '@/components/LazyMarkdownPreview.vue'
 import { CHAT_CODE_AUTO_FOLD_THRESHOLD } from '@/utils/chatMarkdownPreview'
 import { ChevronDownOutline, ChevronUpOutline } from '@vicons/ionicons5'
-import ChatAgentRunFlow from './ChatAgentRunFlow.vue'
+
+const ChatAgentRunFlow = defineAsyncComponent({
+  loader: () => import('./ChatAgentRunFlow.vue'),
+  suspensible: false
+})
 
 const props = defineProps({
   msg: {

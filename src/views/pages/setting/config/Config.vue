@@ -2026,8 +2026,8 @@ async function installNotebookRuntimeDependencies() {
   }
 }
 
-function getUtoolsApi() {
-  return window?.utools || globalThis?.utools
+function getElectronApi() {
+  return window?.electronAPI || globalThis?.electronAPI || null
 }
 
 function extractDialogPath(entry) {
@@ -2058,13 +2058,13 @@ function resolveSaveDialogPath(result) {
 }
 
 function openDirectoryDialog() {
-  const api = getUtoolsApi()
+  const api = getElectronApi()
   if (!api?.showOpenDialog) throw new Error('当前环境不支持目录选择。')
   return resolveOpenDialogPath(api.showOpenDialog({ properties: ['openDirectory'] }))
 }
 
 function getDefaultNotebookVenvRootPath() {
-  const userDataRoot = String(getUtoolsApi()?.getPath?.('userData') || '').trim()
+  const userDataRoot = String(getElectronApi()?.getPath?.('userData') || '').trim()
   if (!userDataRoot) return ''
   const trimmed = userDataRoot.replace(/[\\/]+$/, '')
   const useBackslash = trimmed.includes('\\')
@@ -2074,7 +2074,7 @@ function getDefaultNotebookVenvRootPath() {
 }
 
 function openFileDialog() {
-  const api = getUtoolsApi()
+  const api = getElectronApi()
   if (!api?.showOpenDialog) throw new Error('当前环境不支持文件选择。')
   return resolveOpenDialogPath(
     api.showOpenDialog({
@@ -2085,7 +2085,7 @@ function openFileDialog() {
 }
 
 function saveFileDialog() {
-  const api = getUtoolsApi()
+  const api = getElectronApi()
   if (!api?.showSaveDialog) throw new Error('当前环境不支持保存文件对话框。')
   return resolveSaveDialogPath(
     api.showSaveDialog({

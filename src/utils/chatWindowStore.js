@@ -1,4 +1,4 @@
-import utools from '@/shim/utools'
+import { getDbStorage } from '@/utils/electronStorage'
 
 const CHAT_WINDOW_STORE_KEY = 'ai-tools:chat-windows:v1'
 const CHAT_WINDOW_STORE_VERSION = 1
@@ -91,7 +91,7 @@ function normalizeStoreState(raw) {
 
 export function readChatWindowsState() {
   try {
-    const raw = utools?.dbStorage?.getItem(CHAT_WINDOW_STORE_KEY)
+    const raw = getDbStorage()?.getItem(CHAT_WINDOW_STORE_KEY)
     return normalizeStoreState(raw)
   } catch {
     return normalizeStoreState({})
@@ -101,7 +101,7 @@ export function readChatWindowsState() {
 export function writeChatWindowsState(nextState) {
   const normalized = normalizeStoreState(nextState)
   try {
-    utools?.dbStorage?.setItem(CHAT_WINDOW_STORE_KEY, normalized)
+    getDbStorage()?.setItem(CHAT_WINDOW_STORE_KEY, normalized)
   } catch {
     // ignore persistence failures
   }
@@ -110,7 +110,7 @@ export function writeChatWindowsState(nextState) {
 
 export function clearChatWindowsState() {
   try {
-    utools?.dbStorage?.removeItem(CHAT_WINDOW_STORE_KEY)
+    getDbStorage()?.removeItem(CHAT_WINDOW_STORE_KEY)
   } catch {
     // ignore
   }
@@ -130,4 +130,3 @@ export function buildPersistedChatWindowSnapshot(windowState, { active = false, 
     updatedAt: nowIso()
   }
 }
-
