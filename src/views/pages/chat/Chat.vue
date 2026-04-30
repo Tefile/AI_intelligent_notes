@@ -68,56 +68,75 @@
       </n-flex>
 
       <n-flex align="center" wrap :size="8" class="chat-window-strip" style="margin-top: 12px;">
-        <n-button size="small" secondary @click="createChatWindow({ title: `窗口 ${chatWindows.length + 1}` })">
-          新建窗口
-        </n-button>
-        <div
+        <n-dropdown trigger="click" :options="chatSessionMenuOptions" @select="handleChatSessionMenuSelect">
+          <n-button size="small" secondary>
+            <n-flex align="center" :size="6">
+              <n-icon :component="ChatbubbleEllipsesOutline" size="14" />
+              <span>对话管理</span>
+              <n-icon :component="ChevronDownOutline" size="14" />
+            </n-flex>
+          </n-button>
+        </n-dropdown>
+        <n-tag size="small" bordered>任务 {{ chatWindowTabs.length }}/{{ MAX_TASK_WINDOWS }}</n-tag>
+        <n-tooltip
           v-for="win in chatWindowTabs"
           :key="win.id"
-          :class="['chat-window-chip', { 'is-active': win.id === activeChatWindowId }]"
-          @click="activateChatWindow(win.id)"
+          trigger="hover"
+          :disabled="!chatWindowTooltipText(win)"
         >
-          <n-tag size="small" :type="win.id === activeChatWindowId ? 'primary' : 'default'" bordered>
-            <span v-if="chatWindowRenameDraftId !== win.id" class="chat-window-chip__title">{{ win.title }}</span>
-            <n-input
-              v-else
-              v-model:value="chatWindowRenameDraft"
-              size="tiny"
-              class="chat-window-chip__input"
-              autofocus
-              @click.stop
-              @keydown.enter.stop.prevent="commitRenameChatWindow(findChatWindow(win.id))"
-              @keydown.esc.stop.prevent="cancelRenameChatWindow"
-              @blur="commitRenameChatWindow(findChatWindow(win.id))"
-            />
-            <span v-if="win.unreadCount" class="chat-window-chip__unread">{{ win.unreadCount }}</span>
-            <span v-else-if="win.messageCount" style="opacity: .7; margin-left: 6px;">{{ win.messageCount }}</span>
-          </n-tag>
-          <n-flex align="center" :size="2">
-            <n-button
-              size="tiny"
-              quaternary
-              circle
-              class="chat-window-chip__action"
-              @click.stop="startRenameChatWindow(findChatWindow(win.id))"
+          <template #trigger>
+            <div
+              :class="['chat-window-chip', { 'is-active': win.id === activeChatWindowId }]"
+              @click="activateChatWindow(win.id)"
             >
-              <template #icon>
-                <n-icon :component="PencilOutline" size="12" />
-              </template>
-            </n-button>
-            <n-button
-              size="tiny"
-              quaternary
-              circle
-              class="chat-window-chip__action"
-              @click.stop="closeChatWindow(win.id)"
-            >
-              <template #icon>
-                <n-icon :component="CloseOutline" size="12" />
-              </template>
-            </n-button>
-          </n-flex>
-        </div>
+              <n-tag size="small" :type="win.id === activeChatWindowId ? 'primary' : 'default'" bordered>
+                <span class="chat-window-chip__status">
+                  任务
+                </span>
+                <span v-if="chatWindowRenameDraftId !== win.id" class="chat-window-chip__title">{{ win.title }}</span>
+                <n-input
+                  v-else
+                  v-model:value="chatWindowRenameDraft"
+                  size="tiny"
+                  class="chat-window-chip__input"
+                  autofocus
+                  @click.stop
+                  @keydown.enter.stop.prevent="commitRenameChatWindow(findChatWindow(win.id))"
+                  @keydown.esc.stop.prevent="cancelRenameChatWindow"
+                  @blur="commitRenameChatWindow(findChatWindow(win.id))"
+                />
+                <span v-if="win.hasUnsavedChanges" class="chat-window-chip__dirty-dot" />
+                <span v-if="win.unreadCount" class="chat-window-chip__unread">{{ win.unreadCount }}</span>
+                <span v-else-if="win.messageCount" style="opacity: .7; margin-left: 6px;">{{ win.messageCount }}</span>
+              </n-tag>
+              <n-flex align="center" :size="2">
+                <n-button
+                  size="tiny"
+                  quaternary
+                  circle
+                  class="chat-window-chip__action"
+                  @click.stop="startRenameChatWindow(findChatWindow(win.id))"
+                >
+                  <template #icon>
+                    <n-icon :component="PencilOutline" size="12" />
+                  </template>
+                </n-button>
+                <n-button
+                  size="tiny"
+                  quaternary
+                  circle
+                  class="chat-window-chip__action"
+                  @click.stop="closeChatWindow(win.id)"
+                >
+                  <template #icon>
+                    <n-icon :component="CloseOutline" size="12" />
+                  </template>
+                </n-button>
+              </n-flex>
+            </div>
+          </template>
+          {{ chatWindowTooltipText(win) }}
+        </n-tooltip>
       </n-flex>
 
       <n-flex align="center" wrap :size="6" style="margin-top: 10px;">
@@ -223,7 +242,7 @@
                   <n-button size="small" secondary @click="openAgentModal">选择智能体</n-button>
                   <n-button size="small" secondary @click="openFilePicker">添加附件</n-button>
                   <n-button size="small" tertiary :type="sessionSiderCollapsed ? 'default' : 'primary'" @click="toggleSessionSider">
-                    {{ sessionSiderCollapsed ? '打开会话列表' : '收起会话列表' }}
+                    {{ sessionSiderCollapsed ? '打开历史记录' : '收起历史记录' }}
                   </n-button>
                 </div>
 
@@ -949,6 +968,7 @@ import {
   NCollapse,
   NCollapseItem,
   NTooltip,
+  NDropdown,
   useDialog,
   useMessage
 } from 'naive-ui'
@@ -1141,6 +1161,10 @@ const chatWindows = ref([])
 const activeChatWindowId = ref('')
 const chatWindowRenameDraftId = ref('')
 const chatWindowRenameDraft = ref('')
+const MAX_CHAT_WINDOWS = 5
+const MAX_TASK_WINDOWS = MAX_CHAT_WINDOWS - 1
+const MAIN_CHAT_WINDOW_ID = 'main'
+const MAIN_CHAT_WINDOW_TITLE = '主会话'
 const chatWindowSeed = reactive({
   text: '',
   title: '',
@@ -1152,13 +1176,131 @@ const chatWindowSeed = reactive({
 const windowStateSyncing = ref(false)
 let chatWindowsPersistTimer = null
 const activeChatWindow = computed(() => findChatWindow(activeChatWindowId.value) || null)
-const chatWindowTabs = computed(() => chatWindows.value.map((item, index) => ({
-  id: item.id,
-  title: item.title || `窗口 ${index + 1}`,
-  messageCount: Array.isArray(item.session?.messages) ? item.session.messages.length : 0,
-  unreadCount: Math.max(0, Number(item.unreadCount || 0)),
-  activeSessionFilePath: item.activeSessionFilePath || ''
-})))
+const canCreateChildChatWindow = computed(
+  () => chatWindows.value.filter((item) => !isMainChatWindowId(item?.id)).length < MAX_TASK_WINDOWS
+)
+const chatSessionMenuOptions = computed(() => [
+  {
+    label: '新建任务',
+    key: 'create-child-chat-window',
+    disabled: !canCreateChildChatWindow.value
+  },
+  ...(chatWindowTabs.value.length
+    ? [
+        {
+          label: `任务列表（${chatWindowTabs.value.length}）`,
+          key: 'task-window-list',
+          children: chatWindowTabs.value.map((item) => ({
+            label: item.id === activeChatWindowId.value ? `${item.title}（当前）` : item.title,
+            key: `activate-chat-window:${item.id}`
+          }))
+        }
+      ]
+    : [
+        {
+          label: '暂无任务',
+          key: 'task-window-empty',
+          disabled: true
+        }
+      ])
+])
+
+function getChatWindowSendingState(windowState) {
+  return !!windowState?.isGenerating
+}
+
+function setChatWindowSendingState(windowState, next) {
+  if (!windowState || typeof windowState !== 'object') return
+  windowState.isGenerating = !!next
+}
+
+function getChatWindowAbortState(windowState) {
+  return windowState?.abortController || null
+}
+
+function setChatWindowAbortState(windowState, next) {
+  if (!windowState || typeof windowState !== 'object') return
+  windowState.abortController = next || null
+}
+
+function isMainChatWindowId(id = '') {
+  return String(id || '').trim() === MAIN_CHAT_WINDOW_ID
+}
+
+function computeChatWindowUnsavedChanges(windowStateLike = {}) {
+  if (String(windowStateLike?.input || '').trim()) return true
+  if (Array.isArray(windowStateLike?.pendingAttachments) && windowStateLike.pendingAttachments.length > 0) return true
+  const messages = Array.isArray(windowStateLike?.session?.messages) ? windowStateLike.session.messages : []
+  const apiMessages = Array.isArray(windowStateLike?.session?.apiMessages) ? windowStateLike.session.apiMessages : []
+  return messages.length > 0 || apiMessages.length > 0
+}
+
+function syncChatWindowMeta(windowState) {
+  if (!windowState || typeof windowState !== 'object') return windowState
+  windowState.hasUnsavedChanges = computeChatWindowUnsavedChanges(windowState)
+  return windowState
+}
+
+function buildDefaultChildChatWindowTitle(index) {
+  return `任务 ${index}`
+}
+
+function getNextChildChatWindowTitle() {
+  return buildDefaultChildChatWindowTitle(chatWindows.value.filter((item) => !isMainChatWindowId(item?.id)).length + 1)
+}
+
+function createMainChatWindowState(overrides = {}) {
+  return createEmptyChatWindowState({
+    ...overrides,
+    id: MAIN_CHAT_WINDOW_ID,
+    title: MAIN_CHAT_WINDOW_TITLE
+  })
+}
+
+const chatWindowTabs = computed(() => {
+  let childIndex = 0
+  const normalized = chatWindows.value
+    .filter((item) => !isMainChatWindowId(item?.id))
+    .map((item) => {
+    const isActive = item.id === activeChatWindowId.value
+    const source = isActive ? captureChatWindowSnapshot({ preserveSessionRefs: true }) : item
+    childIndex += 1
+    return {
+      id: source.id,
+      title: source.title || buildDefaultChildChatWindowTitle(childIndex),
+      messageCount: Array.isArray(source.session?.messages) ? source.session.messages.length : 0,
+      unreadCount: Math.max(0, Number(source.unreadCount || 0)),
+      activeSessionFilePath: source.activeSessionFilePath || '',
+      activeSessionTitle: source.activeSessionTitle || '',
+      hasUnsavedChanges: computeChatWindowUnsavedChanges(source)
+    }
+  })
+
+  return normalized
+})
+
+function chatWindowTooltipText(windowTab) {
+  if (!windowTab || typeof windowTab !== 'object') return ''
+  const parts = ['任务会话只做运行期缓存，关闭后默认丢失']
+  if (windowTab.activeSessionTitle) {
+    parts.push(`已绑定历史记录：${windowTab.activeSessionTitle}`)
+  }
+  if (windowTab.messageCount) {
+    parts.push(`消息：${windowTab.messageCount}`)
+  }
+  return parts.join(' · ')
+}
+
+function handleChatSessionMenuSelect(key) {
+  if (key === 'create-child-chat-window') {
+    createChatWindow()
+    return
+  }
+  const rawKey = String(key || '').trim()
+  if (rawKey.startsWith('activate-chat-window:')) {
+    activateChatWindow(rawKey.slice('activate-chat-window:'.length))
+  }
+}
 
 watch(
   activeChatWindowId,
@@ -1174,7 +1316,7 @@ function createEmptyChatWindowState(overrides = {}) {
   const sourceSession = overrides?.session && typeof overrides.session === 'object' ? overrides.session : {}
   const sessionMessages = Array.isArray(sourceSession.messages) ? sourceSession.messages : []
   const sessionApiMessages = Array.isArray(sourceSession.apiMessages) ? sourceSession.apiMessages : []
-  return {
+  return syncChatWindowMeta({
     id: String(overrides.id || newId()),
     title: String(overrides.title || '').trim(),
     session: {
@@ -1203,17 +1345,21 @@ function createEmptyChatWindowState(overrides = {}) {
     videoGenerationMode: String(overrides.videoGenerationMode || 'auto'),
     input: String(overrides.input || ''),
     pendingAttachments: deepCopyJson(overrides.pendingAttachments || [], []),
+    hasUnsavedChanges: !!overrides.hasUnsavedChanges,
+    isGenerating: !!overrides.isGenerating,
+    abortController: overrides.abortController ?? null,
     sessionSiderCollapsed: overrides.sessionSiderCollapsed !== undefined ? !!overrides.sessionSiderCollapsed : true,
     lastViewedMessageCount: Number.isFinite(Number(overrides.lastViewedMessageCount)) ? Math.max(0, Math.floor(Number(overrides.lastViewedMessageCount))) : 0,
     unreadCount: Number.isFinite(Number(overrides.unreadCount)) ? Math.max(0, Math.floor(Number(overrides.unreadCount))) : 0,
     createdAt: String(overrides.createdAt || ''),
     updatedAt: String(overrides.updatedAt || '')
-  }
+  })
 }
 
 function captureChatWindowSnapshot(options = {}) {
   return createEmptyChatWindowState({
     id: activeChatWindowId.value || newId(),
+    title: activeChatWindow.value?.title || '',
     preserveSessionRefs: !!options.preserveSessionRefs,
     session: {
       messages: session.messages,
@@ -1255,10 +1401,11 @@ function snapshotWindowForStorage(windowState, index = 0, activeId = activeChatW
 
 function persistChatWindowsState() {
   if (windowStateSyncing.value) return null
-  const normalizedWindows = chatWindows.value.map((item, index) => snapshotWindowForStorage(item, index))
+  const mainWindow = findChatWindow(MAIN_CHAT_WINDOW_ID) || createMainChatWindowState()
+  const normalizedWindows = [snapshotWindowForStorage(mainWindow, 0, MAIN_CHAT_WINDOW_ID)]
   const payload = {
     schemaVersion: 1,
-    activeChatWindowId: activeChatWindowId.value || normalizedWindows[0]?.id || '',
+    activeChatWindowId: MAIN_CHAT_WINDOW_ID,
     windows: normalizedWindows
   }
   writeChatWindowsState(payload)
@@ -1322,21 +1469,22 @@ function applyChatWindowSnapshot(windowState, options = {}) {
 function ensureChatWindows() {
   if (chatWindows.value.length) return chatWindows.value
   const persisted = readChatWindowsState()
-  const restoredWindows = Array.isArray(persisted?.windows) && persisted.windows.length
-    ? persisted.windows.map((item, index) => createEmptyChatWindowState({
-      ...item,
-      session: item.session,
-      title: item.title || `窗口 ${index + 1}`,
-      unreadCount: item.unreadCount,
-      lastViewedMessageCount: item.lastViewedMessageCount
-    }))
-    : [createEmptyChatWindowState({ title: '窗口 1' })]
+  const persistedWindows = Array.isArray(persisted?.windows) ? persisted.windows : []
+  const persistedMainWindow =
+    persistedWindows.find((item) => isMainChatWindowId(item?.id))
+    || persistedWindows.find((item) => String(item?.id || '').trim() === String(persisted?.activeChatWindowId || '').trim())
+    || persistedWindows[0]
+  const restoredWindows = [createMainChatWindowState({
+    ...(persistedMainWindow || {}),
+    session: persistedMainWindow?.session
+  })]
   chatWindows.value = restoredWindows
-  activeChatWindowId.value = String(persisted?.activeChatWindowId || restoredWindows[0].id).trim() || restoredWindows[0].id
+  activeChatWindowId.value = MAIN_CHAT_WINDOW_ID
   const active = findChatWindow(activeChatWindowId.value) || restoredWindows[0]
   activeChatWindowId.value = active.id
   applyChatWindowSnapshot(active, { resetPickerState: true })
   chatWindows.value.forEach((item) => {
+    syncChatWindowMeta(item)
     item.lastViewedMessageCount = Array.isArray(item.session?.messages) ? item.session.messages.length : 0
     item.unreadCount = item.id === active.id ? 0 : Math.max(0, Number(item.unreadCount || 0))
   })
@@ -1355,6 +1503,7 @@ function saveActiveChatWindowSnapshot() {
   const snapshot = captureChatWindowSnapshot({ preserveSessionRefs: true })
   Object.assign(active, snapshot)
   active.session = snapshot.session
+  syncChatWindowMeta(active)
   active.lastViewedMessageCount = snapshot.session?.messages?.length || 0
   active.unreadCount = 0
   active.updatedAt = new Date().toISOString()
@@ -1363,11 +1512,22 @@ function saveActiveChatWindowSnapshot() {
   return active
 }
 
+function flushCurrentSessionAutosaveOnWindowChange() {
+  if (sessionAutosaveTimer) {
+    window.clearTimeout(sessionAutosaveTimer)
+    sessionAutosaveTimer = null
+  }
+  if (String(activeSessionFilePath.value || '').trim()) {
+    void runSessionAutosave()
+  }
+}
+
 function activateChatWindow(id, options = {}) {
   const targetId = String(id || '').trim()
   const target = findChatWindow(targetId)
   if (!target) return
   if (target.id === activeChatWindowId.value) return
+  flushCurrentSessionAutosaveOnWindowChange()
   saveActiveChatWindowSnapshot()
   activeChatWindowId.value = target.id
   applyChatWindowSnapshot(target, { resetPickerState: options.resetPickerState !== false })
@@ -1381,8 +1541,12 @@ function activateChatWindow(id, options = {}) {
 
 function createChatWindow(options = {}) {
   ensureChatWindows()
+  if (!canCreateChildChatWindow.value) {
+    message.warning(`最多可同时保留 ${MAX_TASK_WINDOWS} 个任务`)
+    return null
+  }
   const next = createEmptyChatWindowState({
-    title: String(options.title || `窗口 ${chatWindows.value.length + 1}`),
+    title: String(options.title || getNextChildChatWindowTitle()),
     sessionSiderCollapsed: true
   })
   chatWindows.value.push(next)
@@ -1396,10 +1560,22 @@ function createChatWindow(options = {}) {
 
 function closeChatWindow(id) {
   const targetId = String(id || '').trim()
+  if (isMainChatWindowId(targetId)) {
+    message.warning('默认主会话常驻，不能关闭')
+    return
+  }
   if (!targetId || chatWindows.value.length <= 1) return
+  const targetWindow = findChatWindow(targetId)
+  if (getChatWindowSendingState(targetWindow)) {
+    message.warning('该任务正在生成中，请先切回并停止后再关闭')
+    return
+  }
   const index = chatWindows.value.findIndex((item) => item.id === targetId)
   if (index < 0) return
-  if (targetId === activeChatWindowId.value) saveActiveChatWindowSnapshot()
+  if (targetId === activeChatWindowId.value) {
+    flushCurrentSessionAutosaveOnWindowChange()
+    saveActiveChatWindowSnapshot()
+  }
   chatWindows.value.splice(index, 1)
   if (targetId === activeChatWindowId.value) {
     const fallback = chatWindows.value[Math.max(0, index - 1)] || chatWindows.value[0]
@@ -1431,7 +1607,8 @@ function openSeedChatWindow(seed) {
     schedulePersistChatWindowsState()
     return
   }
-  const windowState = createChatWindow({ title: seed?.title || `窗口 ${chatWindows.value.length + 1}`, seedText: text })
+  const windowState = createChatWindow({ title: seed?.title || getNextChildChatWindowTitle(), seedText: text })
+  if (!windowState) return
   chatWindowSeed.text = text
   chatWindowSeed.title = String(seed?.title || '').trim()
   chatWindowSeed.source = String(seed?.source || '').trim()
@@ -1617,8 +1794,22 @@ const inlineCommandQuery = ref('')
 const inlineCommandMatchStart = ref(-1)
 const inlineCommandMatchEnd = ref(-1)
 const inlineCommandActiveIndex = ref(0)
-const sending = ref(false)
-const abortController = ref(null)
+const sending = computed({
+  get() {
+    return getChatWindowSendingState(activeChatWindow.value)
+  },
+  set(next) {
+    setChatWindowSendingState(activeChatWindow.value, next)
+  }
+})
+const abortController = computed({
+  get() {
+    return getChatWindowAbortState(activeChatWindow.value)
+  },
+  set(next) {
+    setChatWindowAbortState(activeChatWindow.value, next)
+  }
+})
 const pendingAttachments = ref([])
 
 const thinkingEffort = ref('auto') // auto | low | medium | high
@@ -4156,7 +4347,7 @@ const composerShortcutHint =
 
 const sessionSiderTooltipText = computed(() => {
   const title = activeSessionTitle.value || getSessionTitleFromPath(activeSessionFilePath.value)
-  const action = sessionSiderCollapsed.value ? '打开会话列表' : '收起会话列表'
+  const action = sessionSiderCollapsed.value ? '打开历史记录' : '收起历史记录'
   return title ? `${action}（当前会话：${title}）` : action
 })
 
@@ -6481,36 +6672,67 @@ function serializeDisplayMessageForSave(msg) {
   return out
 }
 
-function buildSessionSavePayload() {
-  return {
+const CHAT_HISTORY_ROOT_DIR = 'session/历史会话'
+const TASK_HISTORY_SESSION_DIR = `${CHAT_HISTORY_ROOT_DIR}/任务记录`
+const AUTO_ARCHIVED_SESSION_DIR = `${CHAT_HISTORY_ROOT_DIR}/自动保存`
+const AUTO_ARCHIVED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+function resolveChatWindowStateForSave(windowStateLike = null) {
+  if (windowStateLike && typeof windowStateLike === 'object') return windowStateLike
+  return captureChatWindowSnapshot({ preserveSessionRefs: true })
+}
+
+function buildChatWindowSavePayload(windowStateLike = null, options = {}) {
+  const sourceWindowState = resolveChatWindowStateForSave(windowStateLike)
+  const sourceSession =
+    sourceWindowState?.session && typeof sourceWindowState.session === 'object' ? sourceWindowState.session : {}
+  const payload = {
     version: 1,
     type: 'chat_session',
     savedAt: new Date().toISOString(),
     state: {
-      selectedAgentId: selectedAgentId.value,
-      selectedProviderId: selectedProviderId.value,
-      selectedModel: selectedModel.value,
-      basePromptMode: basePromptMode.value,
-      selectedPromptId: selectedPromptId.value,
-      customSystemPrompt: customSystemPrompt.value,
-      selectedSkillIds: deepCopyJson(selectedSkillIds.value, []),
-      agentSkillIds: deepCopyJson(agentSkillIds.value, []),
-      activatedAgentSkillIds: deepCopyJson(activatedAgentSkillIds.value, []),
-      manualMcpIds: deepCopyJson(manualMcpIds.value, []),
-      webSearchEnabled: webSearchEnabled.value,
-      autoApproveTools: autoApproveTools.value,
-      autoActivateAgentSkills: autoActivateAgentSkills.value,
-      toolMode: toolMode.value,
-      effectiveToolMode: effectiveToolMode.value,
-      thinkingEffort: thinkingEffort.value,
-      imageGenerationMode: imageGenerationMode.value,
-      videoGenerationMode: videoGenerationMode.value
+      selectedAgentId: sourceWindowState.selectedAgentId ?? null,
+      selectedProviderId: sourceWindowState.selectedProviderId ?? null,
+      selectedModel: String(sourceWindowState.selectedModel || '').trim(),
+      basePromptMode: String(sourceWindowState.basePromptMode || 'custom'),
+      selectedPromptId: sourceWindowState.selectedPromptId ?? null,
+      customSystemPrompt: String(sourceWindowState.customSystemPrompt || ''),
+      selectedSkillIds: deepCopyJson(sourceWindowState.selectedSkillIds || [], []),
+      agentSkillIds: deepCopyJson(sourceWindowState.agentSkillIds || [], []),
+      activatedAgentSkillIds: deepCopyJson(sourceWindowState.activatedAgentSkillIds || [], []),
+      manualMcpIds: deepCopyJson(sourceWindowState.manualMcpIds || [], []),
+      webSearchEnabled: !!sourceWindowState.webSearchEnabled,
+      autoApproveTools: sourceWindowState.autoApproveTools !== undefined ? !!sourceWindowState.autoApproveTools : true,
+      autoActivateAgentSkills:
+        sourceWindowState.autoActivateAgentSkills !== undefined ? !!sourceWindowState.autoActivateAgentSkills : true,
+      toolMode: String(sourceWindowState.toolMode || 'auto'),
+      effectiveToolMode: String(sourceWindowState.effectiveToolMode || 'expanded'),
+      thinkingEffort: String(sourceWindowState.thinkingEffort || 'auto'),
+      imageGenerationMode: String(sourceWindowState.imageGenerationMode || 'auto'),
+      videoGenerationMode: String(sourceWindowState.videoGenerationMode || 'auto')
     },
     session: {
-      messages: (session.messages || []).map(serializeDisplayMessageForSave).filter(Boolean),
-      apiMessages: deepCopyJson(session.apiMessages || [], [])
+      messages: (sourceSession.messages || []).map(serializeDisplayMessageForSave).filter(Boolean),
+      apiMessages: deepCopyJson(sourceSession.apiMessages || [], [])
     }
   }
+
+  if (options.includeDraft) {
+    const draftInput = String(sourceWindowState.input || '')
+    const draftAttachments = deepCopyJson(sourceWindowState.pendingAttachments || [], [])
+    if (draftInput.trim() || draftAttachments.length > 0) {
+      payload.draft = {
+        input: draftInput,
+        pendingAttachments: draftAttachments
+      }
+    }
+  }
+
+  return payload
+}
+
+function buildSessionSavePayload(options = {}) {
+  return buildChatWindowSavePayload(null, options)
 }
 
 function replacePathPrefix(targetPath, oldBase, newBase) {
@@ -6527,6 +6749,155 @@ function getSessionTitleFromPath(filePath) {
   return name.toLowerCase().endsWith('.json') ? name.slice(0, -5) : name
 }
 
+function sanitizeSessionFileStem(rawValue = '') {
+  const normalized = String(rawValue || '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+  return normalized || '未命名记录'
+}
+
+function buildAutoArchivedSessionName(date = new Date()) {
+  const pad = (n, size = 2) => String(n).padStart(size, '0')
+  const yyyy = date.getFullYear()
+  const mm = pad(date.getMonth() + 1)
+  const dd = pad(date.getDate())
+  const hh = pad(date.getHours())
+  const mi = pad(date.getMinutes())
+  const ss = pad(date.getSeconds())
+  const ms = pad(date.getMilliseconds(), 3)
+  return `自动保存-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${ms}`
+}
+
+function buildTaskHistorySessionFilePath(windowStateLike, date = new Date()) {
+  const pad = (n, size = 2) => String(n).padStart(size, '0')
+  const yyyy = date.getFullYear()
+  const mm = pad(date.getMonth() + 1)
+  const dd = pad(date.getDate())
+  const hh = pad(date.getHours())
+  const mi = pad(date.getMinutes())
+  const ss = pad(date.getSeconds())
+  const ms = pad(date.getMilliseconds(), 3)
+  const baseTitle = sanitizeSessionFileStem(
+    String(windowStateLike?.title || '').trim() || buildDefaultChildChatWindowTitle(1)
+  )
+  return `${TASK_HISTORY_SESSION_DIR}/${baseTitle}-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${ms}.json`
+}
+
+function chatWindowHasMeaningfulContent(windowStateLike = {}) {
+  if (!windowStateLike || typeof windowStateLike !== 'object') return false
+  if (String(windowStateLike.input || '').trim()) return true
+  if (Array.isArray(windowStateLike.pendingAttachments) && windowStateLike.pendingAttachments.length > 0) return true
+  const messages = Array.isArray(windowStateLike.session?.messages) ? windowStateLike.session.messages : []
+  const apiMessages = Array.isArray(windowStateLike.session?.apiMessages) ? windowStateLike.session.apiMessages : []
+  return messages.length > 0 || apiMessages.length > 0
+}
+
+function shouldArchiveCurrentSessionBeforeReplace(targetPath = '') {
+  const nextPath = String(targetPath || '').trim()
+  const currentPath = String(activeSessionFilePath.value || '').trim()
+  if (nextPath && currentPath && nextPath === currentPath) return false
+
+  if (String(input.value || '').trim()) return true
+  if ((pendingAttachments.value || []).length > 0) return true
+
+  if (!currentPath) {
+    return (session.messages?.length || 0) > 0 || (session.apiMessages?.length || 0) > 0
+  }
+
+  return false
+}
+
+function notifySessionFilesChanged(filePath = '') {
+  try {
+    window.dispatchEvent(
+      new window.CustomEvent('sessionFilesChanged', {
+        detail: {
+          path: String(filePath || '').trim()
+        }
+      })
+    )
+  } catch {
+    // ignore
+  }
+}
+
+async function archiveCurrentSessionBeforeReplace(targetPath = '') {
+  if (!shouldArchiveCurrentSessionBeforeReplace(targetPath)) return null
+
+  const now = new Date()
+  const fileBaseName = buildAutoArchivedSessionName(now)
+  const filePath = `${AUTO_ARCHIVED_SESSION_DIR}/${fileBaseName}.json`
+  const payload = buildSessionSavePayload({ includeDraft: true })
+  const sourceFilePath = String(activeSessionFilePath.value || '').trim()
+  const sourceTitle =
+    String(activeSessionTitle.value || '').trim()
+    || String(activeChatWindow.value?.title || '').trim()
+    || fileBaseName
+
+  payload.title = sourceTitle
+  payload.savedAt = now.toISOString()
+  payload.updatedAt = payload.savedAt
+  payload.autoSaved = true
+  payload.autoDeleteAt = new Date(now.getTime() + AUTO_ARCHIVED_SESSION_RETENTION_MS).toISOString()
+  payload.source = {
+    type: 'chat_replace_auto_archive',
+    sourceSessionFilePath: sourceFilePath,
+    chatWindowId: String(activeChatWindowId.value || '').trim(),
+    chatWindowTitle: String(activeChatWindow.value?.title || '').trim()
+  }
+
+  await writeFile(filePath, JSON.stringify(payload, null, 2))
+  notifySessionFilesChanged(filePath)
+  return {
+    filePath,
+    title: sourceTitle
+  }
+}
+
+async function persistTaskHistoryAfterStream(windowStateLike) {
+  const windowState = windowStateLike && typeof windowStateLike === 'object' ? windowStateLike : null
+  if (!windowState || isMainChatWindowId(windowState.id)) return null
+  if (!chatWindowHasMeaningfulContent(windowState)) return null
+
+  const now = new Date()
+  const filePath = String(windowState.activeSessionFilePath || '').trim() || buildTaskHistorySessionFilePath(windowState, now)
+  const title =
+    String(windowState.activeSessionTitle || '').trim()
+    || String(windowState.title || '').trim()
+    || getSessionTitleFromPath(filePath)
+  const payload = buildChatWindowSavePayload(windowState, { includeDraft: true })
+
+  payload.title = title
+  payload.savedAt = payload.savedAt || now.toISOString()
+  payload.updatedAt = now.toISOString()
+  payload.source = {
+    ...(payload.source && typeof payload.source === 'object' ? payload.source : {}),
+    type: 'task_chat_history',
+    chatWindowId: String(windowState.id || '').trim(),
+    chatWindowTitle: String(windowState.title || '').trim()
+  }
+
+  await writeFile(filePath, JSON.stringify(payload, null, 2))
+
+  windowState.activeSessionFilePath = filePath
+  windowState.activeSessionTitle = title
+  syncChatWindowMeta(windowState)
+
+  if (String(activeChatWindowId.value || '').trim() === String(windowState.id || '').trim()) {
+    activeSessionFilePath.value = filePath
+    activeSessionTitle.value = title
+  }
+
+  persistChatWindowsState()
+  notifySessionFilesChanged(filePath)
+  return {
+    filePath,
+    title
+  }
+}
+
 let sessionAutosaveTimer = null
 let lastSessionAutosaveAt = 0
 let sessionAutosaveInFlight = false
@@ -6539,12 +6910,20 @@ function unbindSessionAutosave(options = {}) {
   activeSessionFilePath.value = ''
   activeSessionTitle.value = ''
 
+  const activeWindowState = findChatWindow(activeChatWindowId.value)
+  if (activeWindowState) {
+    activeWindowState.activeSessionFilePath = ''
+    activeWindowState.activeSessionTitle = ''
+    syncChatWindowMeta(activeWindowState)
+    persistChatWindowsState()
+  }
+
   if (sessionAutosaveTimer) {
     window.clearTimeout(sessionAutosaveTimer)
     sessionAutosaveTimer = null
   }
 
-  if (!silent) message.info('Auto-save unbound from the current session file')
+  if (!silent) message.info('已解除当前会话文件的自动保存绑定')
 }
 
 async function runSessionAutosave() {
@@ -6561,6 +6940,13 @@ async function runSessionAutosave() {
     const json = JSON.stringify(payload, null, 2)
     await writeFile(filePath, json)
     lastSessionAutosaveAt = Date.now()
+    const activeWindowState = findChatWindow(activeChatWindowId.value)
+    if (activeWindowState) {
+      activeWindowState.activeSessionFilePath = filePath
+      activeWindowState.activeSessionTitle = title || activeWindowState.activeSessionTitle || getSessionTitleFromPath(filePath)
+      syncChatWindowMeta(activeWindowState)
+      persistChatWindowsState()
+    }
   } catch (err) {
     const msg = err?.message || String(err)
     const now = Date.now()
@@ -6647,10 +7033,10 @@ async function confirmSwitchSessionWithDraft(targetPath = '') {
   const hasComposerDraft = !!String(input.value || '').trim() || (pendingAttachments.value || []).length > 0
 
   const content = hasUnsavedConversation
-    ? '当前对话尚未保存，切换历史会话会丢失这段对话内容，是否继续？'
+    ? '当前页面会话内容会被所选历史记录替换，是否继续？'
     : hasComposerDraft
-      ? 'There is still unsent text or attachments in the composer. Switching history sessions will discard this draft. Continue?'
-      : 'Switching history sessions will discard the current unsaved content. Continue?'
+      ? '当前输入框还有未发送的文字或附件。继续后当前页面会话会被所选历史记录替换，是否继续？'
+      : '当前页面还有未完成内容。继续后会被所选历史记录替换，是否继续？'
 
   return new Promise((resolve) => {
     dialog.warning({
@@ -6711,6 +7097,13 @@ function handleSessionSaved(filePath) {
   if (!rel) return
   activeSessionFilePath.value = rel
   activeSessionTitle.value = getSessionTitleFromPath(rel)
+  const activeWindowState = findChatWindow(activeChatWindowId.value)
+  if (activeWindowState) {
+    activeWindowState.activeSessionFilePath = rel
+    activeWindowState.activeSessionTitle = activeSessionTitle.value
+    syncChatWindowMeta(activeWindowState)
+    persistChatWindowsState()
+  }
   void sessionTreeRef.value?.selectPath?.(rel)
 }
 
@@ -6725,6 +7118,12 @@ function handleSessionPathRenamed(oldPath, newPath) {
 
   activeSessionFilePath.value = next
   activeSessionTitle.value = getSessionTitleFromPath(next)
+  const activeWindowState = findChatWindow(activeChatWindowId.value)
+  if (activeWindowState) {
+    activeWindowState.activeSessionFilePath = next
+    activeWindowState.activeSessionTitle = activeSessionTitle.value
+    persistChatWindowsState()
+  }
   void sessionTreeRef.value?.selectPath?.(next)
 }
 
@@ -6896,7 +7295,7 @@ async function loadSessionFromFile(filePath) {
   if (!relPath) return
 
   if (sending.value) {
-    message.warning('正在生成中，请先停止后再加载历史会话。')
+    message.warning('正在生成中，请先停止后再加载历史记录。')
     return
   }
 
@@ -6935,6 +7334,8 @@ async function loadSessionFromFile(filePath) {
       }
     }
 
+    await archiveCurrentSessionBeforeReplace(relPath)
+
     unbindSessionAutosave({ silent: true })
     resetChatRuntimeState()
 
@@ -6958,6 +7359,13 @@ async function loadSessionFromFile(filePath) {
 
     session.messages.push(...displaySafe)
 
+    if (data?.draft && typeof data.draft === 'object') {
+      input.value = typeof data.draft.input === 'string' ? data.draft.input : ''
+      pendingAttachments.value = Array.isArray(data.draft.pendingAttachments)
+        ? deepCopyJson(data.draft.pendingAttachments, [])
+        : []
+    }
+
     await nextTick()
     await sessionTreeRef.value?.selectPath?.(relPath)
     scheduleRefreshUserAnchorMeta()
@@ -6967,7 +7375,15 @@ async function loadSessionFromFile(filePath) {
     activeSessionTitle.value =
       typeof data?.title === 'string' && data.title.trim() ? data.title.trim() : getSessionTitleFromPath(relPath)
 
-    message.success('历史会话已加载')
+    const activeWindowState = findChatWindow(activeChatWindowId.value)
+    if (activeWindowState) {
+      activeWindowState.activeSessionFilePath = relPath
+      activeWindowState.activeSessionTitle = activeSessionTitle.value
+      syncChatWindowMeta(activeWindowState)
+      persistChatWindowsState()
+    }
+
+    message.success('历史记录已加载')
   } catch (err) {
     message.error('加载会话失败：' + (err?.message || String(err)))
   }
@@ -6991,6 +7407,21 @@ watch(
 )
 
 watch(
+  [
+    input,
+    activeSessionFilePath,
+    activeSessionTitle,
+    sessionSiderCollapsed,
+    () => pendingAttachments.value.length
+  ],
+  () => {
+    if (windowStateSyncing.value) return
+    schedulePersistChatWindowsState()
+  },
+  { flush: 'post' }
+)
+
+watch(
   chatWindows,
   () => {
     if (windowStateSyncing.value) return
@@ -7000,9 +7431,14 @@ watch(
 )
 
 watch(
-  sending,
+  () => [activeChatWindowId.value, sending.value],
   (next, prev) => {
-    if (prev && !next) scheduleSessionAutosave({ force: true })
+    if (!Array.isArray(next) || !Array.isArray(prev)) return
+    const [nextWindowId, nextSending] = next
+    const [prevWindowId, prevSending] = prev
+    if (nextWindowId === prevWindowId && prevSending && !nextSending && isMainChatWindowId(nextWindowId)) {
+      scheduleSessionAutosave({ force: true })
+    }
   },
   { flush: 'post' }
 )
@@ -8705,12 +9141,15 @@ async function runChatSession({
   apiKey,
   model,
   prepare,
-  sessionState = session
+  sessionState = session,
+  chatWindowState = activeChatWindow.value
 }) {
   const session = sessionState
-  if (sending.value) return
+  const runtimeWindowState = chatWindowState && typeof chatWindowState === 'object' ? chatWindowState : null
+  if (getChatWindowSendingState(runtimeWindowState)) return
 
-  sending.value = true
+  setChatWindowSendingState(runtimeWindowState, true)
+  let completedNormally = false
   let requestHandle = null
   const abortListeners = new Set()
   const requestAbortState = {
@@ -8748,7 +9187,7 @@ async function runChatSession({
       }
     }
   }
-  abortController.value = requestAbortState
+  setChatWindowAbortState(runtimeWindowState, requestAbortState)
   let timedOut = false
   const requestTimeoutTimer = window.setTimeout(() => {
     timedOut = true
@@ -8846,6 +9285,7 @@ async function runChatSession({
         sessionState
       })
     }
+    completedNormally = true
   } catch (err) {
     if (requestAbortState.aborted || isAbortError(err)) {
       const stopText = timedOut ? `（请求在 ${CHAT_REQUEST_TIMEOUT_MS}ms 后超时并已停止）` : '（已停止）'
@@ -8877,8 +9317,15 @@ async function runChatSession({
     }
   } finally {
     window.clearTimeout(requestTimeoutTimer)
-    sending.value = false
-    abortController.value = null
+    setChatWindowSendingState(runtimeWindowState, false)
+    setChatWindowAbortState(runtimeWindowState, null)
+    if (completedNormally) {
+      try {
+        await persistTaskHistoryAfterStream(runtimeWindowState)
+      } catch (err) {
+        message.error('任务归档失败：' + (err?.message || String(err)))
+      }
+    }
     currentAssistantDisplay = null
     await scrollToBottom()
   }
@@ -9059,7 +9506,12 @@ async function regenerateAssistant(msg) {
   } catch {
     // ignore
   }
-  await runChatSession({ ...cfg, sessionState, prepare: async () => scrollToBottom({ force: true }) })
+  await runChatSession({
+    ...cfg,
+    sessionState,
+    chatWindowState: activeChatWindow.value,
+    prepare: async () => scrollToBottom({ force: true })
+  })
 }
 
 function toggleOrSubmitUserEdit(msg) {
@@ -9138,7 +9590,12 @@ async function submitUserEdit(msg) {
   }
 
   truncateConversationAfterUser(userApiIndex, userDisplayIndex, sessionState)
-  await runChatSession({ ...cfg, sessionState, prepare: async () => scrollToBottom({ force: true }) })
+  await runChatSession({
+    ...cfg,
+    sessionState,
+    chatWindowState: activeChatWindow.value,
+    prepare: async () => scrollToBottom({ force: true })
+  })
 }
 
 function toggleAutoApproveTools() {
@@ -12832,6 +13289,7 @@ async function send() {
   await runChatSession({
     ...cfg,
     sessionState,
+    chatWindowState: activeChatWindow.value,
     prepare: async () => {
       await scrollToBottom({ force: true })
       await prepareUserApiMessage({
@@ -12880,6 +13338,11 @@ async function send() {
   min-width: 0;
 }
 
+.chat-window-chip.is-main {
+  box-shadow: inset 0 0 0 1px rgba(32, 128, 240, 0.12);
+  border-radius: 10px;
+}
+
 .chat-window-chip__title {
   max-width: 160px;
   overflow: hidden;
@@ -12887,8 +13350,36 @@ async function send() {
   white-space: nowrap;
 }
 
+.chat-window-chip__status {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(100, 116, 139, 0.12);
+  color: rgba(51, 65, 85, 0.92);
+}
+
+.chat-window-chip__status.is-main {
+  background: rgba(32, 128, 240, 0.14);
+  color: rgb(29, 78, 216);
+}
+
 .chat-window-chip__input {
   width: 168px;
+}
+
+.chat-window-chip__dirty-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: rgb(245, 158, 11);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
 }
 
 .chat-window-chip__unread {
@@ -12912,6 +13403,24 @@ async function send() {
 
 .chat-window-chip__action:hover {
   opacity: 1;
+}
+
+.chat-page.dark .chat-window-chip__status {
+  background: rgba(148, 163, 184, 0.18);
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.chat-page.dark .chat-window-chip.is-main {
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.22);
+}
+
+.chat-page.dark .chat-window-chip__status.is-main {
+  background: rgba(59, 130, 246, 0.24);
+  color: rgba(191, 219, 254, 0.96);
+}
+
+.chat-page.dark .chat-window-chip__dirty-dot {
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.28);
 }
 
 .chat-page.dark .chat-header-card {

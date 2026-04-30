@@ -917,7 +917,7 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id) || randomId('mcp')
       const item = normalizeMcpServerFields({
         _id: id,
-        name: cleanString(params.name) || id,
+        name: params.name,
         transportType,
         disabled: !!params.disabled,
         keepAlive: !!params.keepAlive,
@@ -934,6 +934,7 @@ class BuiltinConfigMcpClient {
         method: params.method,
         stream: !!params.stream
       })
+      if (!cleanString(item.name)) throw new Error('name 必填')
       if (transportType === 'stdio') {
         if (!cleanString(item.command)) throw new Error('command 必填（stdio）')
       } else {
@@ -959,6 +960,7 @@ class BuiltinConfigMcpClient {
 
       const current = globalConfig.getMcpServer(id)
       const patch = normalizeMcpServerFields(patchSrc)
+      if ('name' in patch && !cleanString(patch.name)) throw new Error('patch.name 不能为空')
 
       // 对 env/headers 做“局部合并”，并忽略脱敏占位值 "***"，避免覆盖真实密钥
       if ('env' in patchSrc) {
@@ -1030,12 +1032,13 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id) || randomId('skill')
       const item = {
         _id: id,
-        name: cleanString(params.name) || id,
+        name: cleanString(params.name),
         description: cleanString(params.description),
         content: typeof params.content === 'string' ? params.content : '',
         triggers: isPlainObject(params.triggers) ? params.triggers : {},
         mcp: normalizeStringList(params.mcp)
       }
+      if (!item.name) throw new Error('name 必填')
       globalConfig.addSkill(item)
       return { ok: true, id }
     }
@@ -1085,6 +1088,10 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id)
       if (!id) throw new Error('id 必填')
       const patch = sanitizePatchObject(params.patch)
+      if ('name' in patch) {
+        patch.name = cleanString(patch.name)
+        if (!patch.name) throw new Error('patch.name 不能为空')
+      }
       globalConfig.updateSkill(id, patch)
       return { ok: true, id }
     }
@@ -1110,10 +1117,11 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id) || randomId('prompt')
       const item = {
         _id: id,
-        name: cleanString(params.name) || id,
+        name: cleanString(params.name),
         description: cleanString(params.description),
         content: typeof params.content === 'string' ? params.content : ''
       }
+      if (!item.name) throw new Error('name 必填')
       globalConfig.addPrompt(item)
       return { ok: true, id }
     }
@@ -1121,6 +1129,10 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id)
       if (!id) throw new Error('id 必填')
       const patch = sanitizePatchObject(params.patch)
+      if ('name' in patch) {
+        patch.name = cleanString(patch.name)
+        if (!patch.name) throw new Error('patch.name 不能为空')
+      }
       globalConfig.updatePrompt(id, patch)
       return { ok: true, id }
     }
@@ -1150,13 +1162,14 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id) || randomId('agent')
       const item = normalizeAgentFields({
         _id: id,
-        name: cleanString(params.name) || id,
+        name: params.name,
         provider: params.provider,
         model: params.model,
         skills: params.skills,
         mcp: params.mcp,
         prompt: params.prompt
       })
+      if (!cleanString(item.name)) throw new Error('name 必填')
       globalConfig.addAgent(item)
       return { ok: true, id }
     }
@@ -1164,6 +1177,7 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id)
       if (!id) throw new Error('id 必填')
       const patch = normalizeAgentFields(sanitizePatchObject(params.patch))
+      if ('name' in patch && !cleanString(patch.name)) throw new Error('patch.name 不能为空')
       globalConfig.updateAgent(id, patch)
       return { ok: true, id }
     }
@@ -1184,11 +1198,12 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id) || randomId('provider')
       const item = normalizeProviderFields({
         _id: id,
-        name: cleanString(params.name) || id,
+        name: params.name,
         baseurl: params.baseurl,
         apikey: params.apikey,
         selectModels: params.selectModels
       })
+      if (!item.name) throw new Error('name 必填')
       if (!item.baseurl) throw new Error('baseurl 必填')
       if (!item.apikey) throw new Error('apikey 必填')
       globalConfig.addProvider(item)
@@ -1198,6 +1213,7 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id)
       if (!id) throw new Error('id 必填')
       const patch = normalizeProviderFields(sanitizePatchObject(params.patch))
+      if ('name' in patch && !patch.name) throw new Error('patch.name 不能为空')
       if ('apikey' in patch && patch.apikey === '***') delete patch.apikey
       if ('baseurl' in patch && !patch.baseurl) throw new Error('baseurl 不能为空')
       if ('apikey' in patch && !patch.apikey) throw new Error('apikey 不能为空（注意不要传 "***"）')
@@ -1231,6 +1247,8 @@ class BuiltinConfigMcpClient {
       const id = cleanString(params.id) || randomId('task')
       const agentId = normalizeOptionalString(params.agentId)
       if (!agentId) throw new Error('agentId 必填（Agent 的 _id）')
+      const taskName = cleanString(params.name)
+      if (!taskName) throw new Error('name 必填')
 
       const content = typeof params.content === 'string' ? params.content : String(params.content || '')
       if (!String(content || '').trim()) throw new Error('content 必填（需要让 Agent 执行的内容）')
@@ -1268,7 +1286,7 @@ class BuiltinConfigMcpClient {
 
       const item = {
         _id: id,
-        name: cleanString(params.name) || id,
+        name: taskName,
         description: cleanString(params.description),
         enabled: params.enabled !== false,
         trigger,

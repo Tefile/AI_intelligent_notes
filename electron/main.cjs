@@ -17,6 +17,8 @@ const db = require('./db.cjs')
 const isDev = process.env.NODE_ENV === 'development'
 const DEV_URL = 'http://localhost:5173'
 const userDataOverride = String(process.env.AI_TOOLS_USER_DATA_DIR || '').trim()
+const rendererEntryPath = path.join(__dirname, '..', 'dist', 'index.html')
+const logPrefix = '[main]'
 
 if (userDataOverride) {
   app.setPath('userData', path.resolve(userDataOverride))
@@ -24,8 +26,101 @@ if (userDataOverride) {
 
 let mainWindow = null
 
+function logInfo(...args) {
+  console.log(logPrefix, ...args)
+}
+
+function logError(...args) {
+  console.error(logPrefix, ...args)
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function buildMissingRendererHtml(targetPath) {
+  const missingPath = escapeHtml(targetPath)
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Renderer Not Found</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+        color: #0f172a;
+      }
+      .panel {
+        width: min(720px, calc(100vw - 48px));
+        padding: 28px 32px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 20px 48px rgba(15, 23, 42, 0.14);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 12px;
+        line-height: 1.7;
+      }
+      code, pre {
+        font-family: "Fira Code", Consolas, monospace;
+      }
+      pre {
+        margin: 12px 0 0;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: #0f172a;
+        color: #e2e8f0;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      ul {
+        margin: 0;
+        padding-left: 20px;
+        line-height: 1.8;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <h1>找不到前端构建产物</h1>
+      <p>Electron 当前尝试加载生产页面，但下面这个文件不存在：</p>
+      <pre>${missingPath}</pre>
+      <p>本地开发请直接运行：</p>
+      <pre>npm start</pre>
+      <p>如果你就是想按生产方式启动，请先构建 renderer：</p>
+      <pre>npm run build:renderer
+npm run start:prod</pre>
+      <p>说明：</p>
+      <ul>
+        <li><code>npm start</code> 现在会启动 Vite + Electron 的开发模式</li>
+        <li><code>npm run start:prod</code> 会按 <code>dist/index.html</code> 启动</li>
+      </ul>
+    </main>
+  </body>
+</html>`
+}
+
 /** 创建主窗口 */
 function createMainWindow() {
+  logInfo('createMainWindow:start', { isDev, preload: path.join(__dirname, 'preload.cjs') })
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -41,35 +136,116 @@ function createMainWindow() {
     }
   })
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    logError('webContents.did-fail-load', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame
+    })
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logError('webContents.render-process-gone', details)
+  })
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logError('webContents.preload-error', {
+      preloadPath,
+      message: error?.message || String(error || ''),
+      stack: error?.stack || ''
+    })
+  })
+
+  mainWindow.webContents.on('console-message', (details) => {
+    const level = details?.level || 'info'
+    if (level === 'warning' || level === 'error') {
+      logInfo('renderer.console', {
+        level,
+        message: details?.message || '',
+        line: details?.lineNumber ?? null,
+        sourceId: details?.sourceId || '',
+        frameRoutingId: details?.frame?.routingId ?? null
+      })
+    }
+  })
+
   if (isDev) {
+    logInfo('loadURL', DEV_URL)
     mainWindow.loadURL(DEV_URL)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    if (fs.existsSync(rendererEntryPath)) {
+      logInfo('loadFile', rendererEntryPath)
+      mainWindow.loadFile(rendererEntryPath)
+    } else {
+      logError('renderer entry missing', rendererEntryPath)
+      mainWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(buildMissingRendererHtml(rendererEntryPath))}`)
+    }
   }
 
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    logInfo('window closed')
+    mainWindow = null
+  })
 }
 
+app.on('browser-window-created', () => {
+  logInfo('browser-window-created')
+})
+
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('destroyed', () => {
+    logInfo('webContents destroyed')
+  })
+})
+
+app.on('render-process-gone', (_event, _webContents, details) => {
+  logError('app.render-process-gone', details)
+})
+
+app.on('child-process-gone', (_event, details) => {
+  logError('app.child-process-gone', details)
+})
+
+app.on('window-all-closed', () => {
+  logInfo('window-all-closed')
+  if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('will-quit', () => {
+  logInfo('will-quit')
+  db.close()
+})
+
+app.on('quit', (_event, exitCode) => {
+  logInfo('quit', { exitCode })
+})
+
+process.on('uncaughtException', (error) => {
+  logError('uncaughtException', error?.stack || error?.message || String(error || ''))
+})
+
+process.on('unhandledRejection', (reason) => {
+  logError('unhandledRejection', reason?.stack || reason?.message || String(reason || ''))
+})
+
 app.whenReady().then(async () => {
+  logInfo('whenReady')
   // 初始化 SQLite 数据库（sql.js WASM 模块需异步加载）
   await db.init(path.join(app.getPath('userData'), 'aitools.db'))
+  logInfo('db initialized')
   registerIpcHandlers()
+  logInfo('ipc handlers registered')
   createMainWindow()
 
   // macOS: 点击 Dock 图标时重新创建窗口
   app.on('activate', () => {
+    logInfo('activate')
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
   })
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
-// 应用退出前关闭数据库连接
-app.on('will-quit', () => {
-  db.close()
+}).catch((error) => {
+  logError('whenReady failed', error?.stack || error?.message || String(error || ''))
 })
 
 /** 注册所有 IPC 通信通道 */

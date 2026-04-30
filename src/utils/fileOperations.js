@@ -1,5 +1,23 @@
 function getFileOperationsApi() {
-    return globalThis?.fileOperations;
+    return globalThis?.fileOperations || globalThis?.electronAPI?.fileOperations || null;
+}
+
+function getElectronApi() {
+    return globalThis?.electronAPI || null;
+}
+
+function getRuntimeEnvironmentSnapshot() {
+    const userAgent = String(globalThis?.navigator?.userAgent || '').trim();
+    const hasElectronUserAgent = /\bElectron\/\d+/i.test(userAgent);
+    const electronApi = getElectronApi();
+    const fileOperationsApi = getFileOperationsApi();
+
+    return {
+        userAgent,
+        hasElectronUserAgent,
+        hasElectronApi: !!electronApi,
+        hasFileOperationsApi: !!fileOperationsApi
+    };
 }
 
 const S_IFMT = 0o170000;
@@ -15,6 +33,16 @@ export function describeFileOperationsError(err, featureLabel = '当前功能') 
     const label = String(featureLabel || '当前功能').trim() || '当前功能';
 
     if (raw.includes('未注入')) {
+        const runtime = getRuntimeEnvironmentSnapshot();
+
+        if (!runtime.hasElectronUserAgent && !runtime.hasElectronApi) {
+            return `${label}依赖 Electron preload 注入的 fileOperations。当前页面看起来运行在普通浏览器或单独的 Vite 页面中，而不是 Electron 桌面窗口。请使用 \`npm start\` 启动应用，不要直接打开 localhost 页面。`;
+        }
+
+        if (runtime.hasElectronApi && !runtime.hasFileOperationsApi) {
+            return `${label}运行在 Electron 环境中，但 preload 没有完整挂载 fileOperations。请检查 Electron preload 是否已执行，以及 DevTools Console 是否有 preload 初始化报错。`;
+        }
+
         return `${label}依赖 preload 注入的 fileOperations。当前环境未注入，请检查 Electron preload 是否已加载。`;
     }
 

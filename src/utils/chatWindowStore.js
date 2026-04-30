@@ -29,6 +29,21 @@ function toSafeInteger(value, fallback = 0) {
   return Math.max(0, Math.floor(number))
 }
 
+function resolveWindowKind(source) {
+  const explicitKind = String(source?.windowKind || '').trim()
+  if (explicitKind === 'draft' || explicitKind === 'archived') return explicitKind
+  return String(source?.activeSessionFilePath || '').trim() ? 'archived' : 'draft'
+}
+
+function computeWindowUnsavedChanges(source, { messages = [], apiMessages = [] } = {}) {
+  if (String(source?.input || '').trim()) return true
+  if (Array.isArray(source?.pendingAttachments) && source.pendingAttachments.length > 0) return true
+  if (!String(source?.activeSessionFilePath || '').trim()) {
+    return messages.length > 0 || apiMessages.length > 0
+  }
+  return false
+}
+
 function normalizeWindowState(raw, index = 0) {
   const source = raw && typeof raw === 'object' ? raw : {}
   const session = source.session && typeof source.session === 'object' ? source.session : {}
@@ -38,6 +53,8 @@ function normalizeWindowState(raw, index = 0) {
   const title = String(source.title || `窗口 ${index + 1}`).trim() || `窗口 ${index + 1}`
   const lastViewedMessageCount = toSafeInteger(source.lastViewedMessageCount, 0)
   const unreadCount = toSafeInteger(source.unreadCount, Math.max(0, messageCount - lastViewedMessageCount))
+  const windowKind = resolveWindowKind(source)
+  const lastSavedAt = String(source.lastSavedAt || '').trim()
 
   return {
     id: String(source.id || createId()).trim() || createId(),
@@ -68,6 +85,9 @@ function normalizeWindowState(raw, index = 0) {
     videoGenerationMode: String(source.videoGenerationMode || 'auto'),
     input: String(source.input || ''),
     pendingAttachments: cloneJson(source.pendingAttachments || [], []),
+    windowKind,
+    hasUnsavedChanges: computeWindowUnsavedChanges(source, { messages, apiMessages }),
+    lastSavedAt,
     sessionSiderCollapsed: source.sessionSiderCollapsed !== undefined ? !!source.sessionSiderCollapsed : true,
     lastViewedMessageCount,
     unreadCount,

@@ -3283,12 +3283,16 @@ class GlobalConfig {
     }
 
     addAgent(item) {
+        const normalizedName = String(item?.name || '').trim();
+        if (!normalizedName) {
+            throw new Error('Agent 名称不能为空');
+        }
         const config = this._getRaw();
         if (!this._isPlainObject(config.agents)) config.agents = {};
         if (config.agents[item._id]) {
             throw new Error(`Agent with id ${item._id} already exists`);
         }
-        config.agents[item._id] = item;
+        config.agents[item._id] = { ...item, name: normalizedName };
         this._save(config);
         return config.agents;
     }
@@ -3296,16 +3300,23 @@ class GlobalConfig {
     updateAgent(id, updatedFields) {
         const config = this._getRaw();
         if (!config.agents[id]) throw new Error('Agent not found');
+        const nextFields = { ...updatedFields };
+        if ('name' in nextFields) {
+            nextFields.name = String(nextFields.name || '').trim();
+            if (!nextFields.name) {
+                throw new Error('Agent 名称不能为空');
+            }
+        }
 
         if (BUILTIN_AGENT_IDS.includes(id)) {
             const builtinAgent = buildBuiltinAgent()
-            const merged = mergeBuiltinAgent({ ...config.agents[id], ...(updatedFields || {}) }, builtinAgent)
+            const merged = mergeBuiltinAgent({ ...config.agents[id], ...nextFields }, builtinAgent)
             config.agents[id] = merged
             this._save(config)
             return config.agents
         }
 
-        config.agents[id] = { ...config.agents[id], ...updatedFields };
+        config.agents[id] = { ...config.agents[id], ...nextFields };
         this._save(config);
         return config.agents;
     }
@@ -3330,12 +3341,16 @@ class GlobalConfig {
         if (BUILTIN_PROVIDER_IDS.includes(item?._id)) {
             throw new Error('内置 Provider 不可覆盖');
         }
+        const normalizedName = String(item?.name || '').trim();
+        if (!normalizedName) {
+            throw new Error('Provider 名称不能为空');
+        }
         const config = this._getRaw();
         if (!this._isPlainObject(config.providers)) config.providers = {};
         if (config.providers[item._id]) {
             throw new Error(`Provider with id ${item._id} already exists`);
         }
-        config.providers[item._id] = item;
+        config.providers[item._id] = { ...item, name: normalizedName };
         this._save(config);
         return config.providers;
     }
@@ -3344,7 +3359,14 @@ class GlobalConfig {
         if (BUILTIN_PROVIDER_IDS.includes(id)) throw new Error('内置 Provider 不可修改');
         const config = this._getRaw();
         if (!config.providers[id]) throw new Error('Provider not found');
-        config.providers[id] = { ...config.providers[id], ...updatedFields };
+        const nextFields = { ...updatedFields };
+        if ('name' in nextFields) {
+            nextFields.name = String(nextFields.name || '').trim();
+            if (!nextFields.name) {
+                throw new Error('Provider 名称不能为空');
+            }
+        }
+        config.providers[id] = { ...config.providers[id], ...nextFields };
         this._save(config);
         return config.providers;
     }
@@ -3366,12 +3388,16 @@ class GlobalConfig {
     }
 
     addPrompt(item) {
+        const normalizedName = String(item?.name || '').trim();
+        if (!normalizedName) {
+            throw new Error('Prompt 名称不能为空');
+        }
         const config = this._getRaw();
         if (!this._isPlainObject(config.prompts)) config.prompts = {};
         if (config.prompts[item._id]) {
             throw new Error(`Prompt with id ${item._id} already exists`);
         }
-        config.prompts[item._id] = item;
+        config.prompts[item._id] = { ...item, name: normalizedName };
         this._save(config);
         return config.prompts;
     }
@@ -3380,7 +3406,14 @@ class GlobalConfig {
         if (id === BUILTIN_PROMPT_ID) throw new Error('内置 Prompt 不可修改');
         const config = this._getRaw();
         if (!config.prompts[id]) throw new Error('Prompt not found');
-        config.prompts[id] = { ...config.prompts[id], ...updatedFields };
+        const nextFields = { ...updatedFields };
+        if ('name' in nextFields) {
+            nextFields.name = String(nextFields.name || '').trim();
+            if (!nextFields.name) {
+                throw new Error('Prompt 名称不能为空');
+            }
+        }
+        config.prompts[id] = { ...config.prompts[id], ...nextFields };
         this._save(config);
         return config.prompts;
     }
@@ -3402,12 +3435,16 @@ class GlobalConfig {
     }
 
     addMcpServer(item) {
+        const normalizedName = String(item?.name || '').trim();
+        if (!normalizedName) {
+            throw new Error('MCP Server 名称不能为空');
+        }
         const config = this._getRaw();
         if (!this._isPlainObject(config.mcpServers)) config.mcpServers = {};
         if (config.mcpServers[item._id]) {
             throw new Error(`MCP server with id ${item._id} already exists`);
         }
-        config.mcpServers[item._id] = item;
+        config.mcpServers[item._id] = { ...item, name: normalizedName };
         this._save(config);
         return config.mcpServers;
     }
@@ -3416,7 +3453,14 @@ class GlobalConfig {
         if (BUILTIN_MCP_SERVER_IDS.includes(id)) throw new Error('内置 MCP 不可修改');
         const config = this._getRaw();
         if (!config.mcpServers[id]) throw new Error('MCP server not found');
-        config.mcpServers[id] = { ...config.mcpServers[id], ...updatedFields };
+        const nextFields = { ...updatedFields };
+        if ('name' in nextFields) {
+            nextFields.name = String(nextFields.name || '').trim();
+            if (!nextFields.name) {
+                throw new Error('MCP Server 名称不能为空');
+            }
+        }
+        config.mcpServers[id] = { ...config.mcpServers[id], ...nextFields };
         this._save(config);
         return config.mcpServers;
     }
@@ -3438,12 +3482,16 @@ class GlobalConfig {
     }
 
     addSkill(item) {
+        const normalizedName = String(item?.name || '').trim();
+        if (!normalizedName) {
+            throw new Error('Skill 名称不能为空');
+        }
         const config = this._getRaw();
         if (!this._isPlainObject(config.skills)) config.skills = {};
         if (config.skills[item._id]) {
             throw new Error(`Skill with id ${item._id} already exists`);
         }
-        config.skills[item._id] = item;
+        config.skills[item._id] = { ...item, name: normalizedName };
         this._save(config);
         return config.skills;
     }
@@ -3452,8 +3500,14 @@ class GlobalConfig {
         const config = this._getRaw();
         if (!config.skills[id]) throw new Error('Skill not found');
         if (BUILTIN_SKILL_IDS.includes(id)) throw new Error('内置 Skill 不可修改');
-
-        config.skills[id] = { ...config.skills[id], ...updatedFields };
+        const nextFields = { ...updatedFields };
+        if ('name' in nextFields) {
+            nextFields.name = String(nextFields.name || '').trim();
+            if (!nextFields.name) {
+                throw new Error('Skill 名称不能为空');
+            }
+        }
+        config.skills[id] = { ...config.skills[id], ...nextFields };
         this._save(config);
         return config.skills;
     }
@@ -3478,7 +3532,10 @@ class GlobalConfig {
         if (!this._isPlainObject(item)) throw new Error('Timed task must be a plain object')
         const rawId = typeof item._id === 'string' ? item._id.trim() : ''
         if (!rawId) throw new Error('Timed task _id 不能为空')
+        const normalizedName = String(item?.name || '').trim()
+        if (!normalizedName) throw new Error('Timed task 名称不能为空')
         item._id = rawId
+        item.name = normalizedName
 
         const config = this._getRaw();
         if (!this._isPlainObject(config.timedTask)) config.timedTask = {};
@@ -3497,6 +3554,10 @@ class GlobalConfig {
         const patch = { ...updatedFields }
         delete patch._id
         delete patch.builtin
+        if ('name' in patch) {
+            patch.name = String(patch.name || '').trim()
+            if (!patch.name) throw new Error('Timed task 名称不能为空')
+        }
         config.timedTask[id] = { ...config.timedTask[id], ...patch };
         this._save(config);
         return config.timedTask;

@@ -97,7 +97,7 @@
 import { ref, h, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { FileTrayFullOutline, Folder, FolderOpenOutline, RefreshOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
 import { NIcon, NTree, NDropdown, useMessage, useDialog, NInput, NButton, NModal, NTooltip, NAlert } from 'naive-ui'
-import { createDirectory, writeFile, listDirectory, exists, stat, deleteItem, moveItem, openInFileManager, describeFileOperationsError } from '@/utils/fileOperations'
+import { createDirectory, writeFile, readFile, listDirectory, exists, stat, deleteItem, moveItem, openInFileManager, describeFileOperationsError } from '@/utils/fileOperations'
 
 const props = defineProps({
   root: {
@@ -136,6 +136,7 @@ const selectedFolderKeys = ref([props.root])
 const newSessionName = ref('')
 
 const pendingPayload = ref(null)
+const AUTO_SAVED_ROOT = computed(() => `${props.root}/历史会话/自动保存`)
 
 const protectedTimedTaskDir = computed(() => `${props.root}/Timed Task`)
 function isProtectedPath(p) {
@@ -170,6 +171,16 @@ function listAncestorDirs(filePath) {
   return dirs
 }
 
+function formatSessionTreeLabel(fileName, isDirectory = false) {
+  const rawName = String(fileName || '').trim()
+  if (!rawName) return ''
+  if (isDirectory) {
+    if (rawName === 'Auto Saved') return '自动保存'
+    if (rawName === 'Timed Task') return '定时任务'
+  }
+  return rawName
+}
+
 async function ensureRootReady() {
   const root = String(props.root || '').trim()
   if (!root) throw new Error('缺少根目录')
@@ -177,11 +188,60 @@ async function ensureRootReady() {
   if (!ok) await createDirectory(root)
 }
 
+function parseSessionJsonSafely(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+function isExpiredAutoSavedSession(payload) {
+  if (!payload || payload.autoSaved !== true) return false
+  const expiresAt = Date.parse(String(payload.autoDeleteAt || '').trim())
+  return Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Date.now()
+}
+
+async function cleanupExpiredAutoSavedSessions(relativePath = AUTO_SAVED_ROOT.value) {
+  const rootPath = String(relativePath || '').trim()
+  if (!rootPath) return 0
+
+  try {
+    const rootExists = await exists(rootPath)
+    if (!rootExists) return 0
+
+    let deletedCount = 0
+    const entries = await listDirectory(rootPath)
+    for (const entry of entries) {
+      const statInfo = await stat(entry)
+      if (statInfo.isDirectory()) {
+        deletedCount += await cleanupExpiredAutoSavedSessions(entry)
+        continue
+      }
+
+      const fileName = entry.split('/').pop()
+      if (!String(fileName || '').toLowerCase().endsWith('.json')) continue
+
+      try {
+        const content = await readFile(entry)
+        const payload = parseSessionJsonSafely(String(content || ''))
+        if (!isExpiredAutoSavedSession(payload)) continue
+        await deleteItem(entry)
+        deletedCount += 1
+      } catch {
+        // ignore invalid or unreadable auto-saved session entries
+      }
+    }
+
+    return deletedCount
+  } catch {
+    return 0
+  }
+}
+
 onMounted(async () => {
   try {
-    await ensureRootReady()
-    await loadDirectory(props.root, null)
-    runtimeIssue.value = ''
+    await refreshTree({ silent: true })
   } catch (err) {
     runtimeIssue.value = describeFileOperationsError(err, '会话功能')
     message.error(runtimeIssue.value)
@@ -218,6 +278,7 @@ async function refreshTree(options = {}) {
 
   try {
     await ensureRootReady()
+    await cleanupExpiredAutoSavedSessions()
 
     const keepExpanded = Array.isArray(expandedKeys.value) ? [...expandedKeys.value] : []
     const keepFolderExpanded = Array.isArray(folderExpandedKeys.value) ? [...folderExpandedKeys.value] : []
@@ -361,7 +422,9 @@ async function loadDirectory(relativePath, parentNode) {
 
       if (!isDirectory && !String(fileName || '').endsWith('.json')) continue
 
-      const label = isDirectory ? fileName : String(fileName || '').slice(0, -5)
+      const label = isDirectory
+        ? formatSessionTreeLabel(fileName, true)
+        : formatSessionTreeLabel(String(fileName || '').slice(0, -5), false)
       children.push({
         key: entry,
         label,

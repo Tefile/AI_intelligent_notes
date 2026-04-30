@@ -109,6 +109,7 @@ const api = {
     writeFile: (p, data, enc) => ipcRenderer.invoke('fs:writeFile', p, data, enc),
     exists: (p) => ipcRenderer.invoke('fs:exists', p)
   },
+  fileOperations: fileOperationsApi,
   // SQLite 键值存储（替代 utools.dbCryptoStorage）
   db: {
     getItem: (key) => ipcRenderer.sendSync('db:getItem', key),

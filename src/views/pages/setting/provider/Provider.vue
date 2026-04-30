@@ -73,6 +73,7 @@
       <n-form
         ref="formRef"
         :model="formData"
+        :rules="rules"
         label-placement="left"
         label-align="left"
         require-mark-placement="left"
@@ -203,6 +204,19 @@ const formData = reactive({
   apikey: '',
   selectModels: []
 })
+
+const rules = {
+  name: {
+    required: true,
+    trigger: ['blur', 'input'],
+    validator(_rule, value) {
+      if (!String(value || '').trim()) {
+        return new Error('服务商名称为必填项')
+      }
+      return true
+    }
+  }
+}
 
 const availableModels = ref([])
 const modelFilterKeyword = ref('')
@@ -471,8 +485,14 @@ function handleSave() {
 
     saving.value = true
     try {
+      const name = String(formData.name || '').trim()
+      if (!name) {
+        message.warning('请填写服务商名称')
+        return
+      }
+
       const providerData = {
-        name: String(formData.name || '').trim(),
+        name,
         baseurl: formData.baseurl,
         apikey: formData.apikey,
         selectModels: formData.selectModels
