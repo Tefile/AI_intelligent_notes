@@ -1,4 +1,5 @@
 <template>
+  <!-- 助手媒体区：展示图片任务状态和生成结果。 -->
   <div :class="['assistant-media', 'chat-page', theme, { 'is-dark': theme === 'dark' }]">
     <!-- 图片任务状态卡片（异步任务受理中/轮询中） -->
     <div v-if="msg.imageTask && !msg.imageBubblePlaceholder" class="assistant-image-task">

@@ -1,3 +1,4 @@
+// 聊天提示词工具：整理系统提示、模板和内联提示插入逻辑。
 export function normalizePromptText(text) {
   return String(text ?? '').replace(/\r\n/g, '\n').trim()
 }

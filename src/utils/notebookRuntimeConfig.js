@@ -1,3 +1,4 @@
+// Notebook 运行时配置：整理执行超时、内核和输出策略。
 export const DEFAULT_NOTEBOOK_RUNTIME_CONFIG = Object.freeze({
   pythonPath: 'python',
   venvRoot: '',

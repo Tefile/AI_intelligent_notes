@@ -1,3 +1,4 @@
+// 聊天请求兼容层：把旧格式请求转换成当前运行时需要的形状。
 function normalizeLowercaseText(value) {
   return String(value || '').trim().toLowerCase()
 }

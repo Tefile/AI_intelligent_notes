@@ -1,3 +1,4 @@
+// MCP 参数表单工具：把 JSON Schema 风格参数描述整理成表单字段。
 export function normalizeMcpParamType(type) {
   const list = Array.isArray(type) ? type : [type]
   const picked = list.map((item) => String(item || '').trim()).find((item) => item && item !== 'null')

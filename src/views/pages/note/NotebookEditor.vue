@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 超级笔记编辑器：负责 Notebook 的打开、执行、输出和保存。 -->
   <div v-if="!filePath" :class="['notebook-welcome', { 'is-dark': theme === 'dark' }]">
     <n-card class="notebook-welcome__card" :bordered="false">
       <n-icon size="46" :depth="3"><CodeSlashOutline /></n-icon>

@@ -1,3 +1,4 @@
+// ECharts 数据转换工具：把表格和结构化数据转成图表输入。
 function normalizeCellText(value) {
   return String(value ?? '').trim()
 }

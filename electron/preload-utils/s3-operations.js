@@ -1,3 +1,4 @@
+// S3 操作桥接：封装对象存储上传、下载和签名请求。
 const { AwsClient } = require('aws4fetch');
 const fs = require('fs').promises;
 

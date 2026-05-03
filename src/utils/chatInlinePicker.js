@@ -1,3 +1,4 @@
+// 聊天内联命令索引：解析 /prompt、/skill 和 /mcp 的候选项。
 export const INLINE_COMMAND_DEFINITIONS = Object.freeze([
   Object.freeze({
     kind: 'prompt',

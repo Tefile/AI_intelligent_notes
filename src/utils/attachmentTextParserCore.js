@@ -1,4 +1,6 @@
+// 附件文本解析核心：负责图片、文档和二进制附件的文本抽取逻辑。
 function decodeXmlEntities(text) {
+  // PPTX / XML 里的文本要先解实体，不然后续拼接出来会满是 &lt; 这类占位符。
   return String(text || '')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -15,6 +17,7 @@ export function truncateAttachmentText(text, maxChars) {
 }
 
 export async function parsePdfToText(arrayBuffer) {
+  // PDF 优先走 pdf.js 的文本层；没有文本层时，通常就是扫描件或图片型 PDF。
   const pdfjsMod = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const pdfjs = pdfjsMod?.default || pdfjsMod
   const loadingTask = pdfjs.getDocument({
@@ -39,6 +42,7 @@ export async function parsePdfToText(arrayBuffer) {
 }
 
 export async function parseDocxToText(arrayBuffer) {
+  // Word 文档直接交给 mammoth，它更适合抽正文而不是保留排版。
   const mammothMod = await import('mammoth/mammoth.browser.js')
   const mammoth = mammothMod?.default || mammothMod
   const result = await mammoth.extractRawText({ arrayBuffer })
@@ -46,6 +50,7 @@ export async function parseDocxToText(arrayBuffer) {
 }
 
 export async function parseXlsxToText(arrayBuffer) {
+  // 表格先转 CSV，再按 sheet 分块，方便后续把结果喂给模型或展示。
   const xlsxMod = await import('xlsx')
   const XLSX = xlsxMod?.default || xlsxMod
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
@@ -64,6 +69,7 @@ export async function parseXlsxToText(arrayBuffer) {
 }
 
 export async function parsePptxToText(arrayBuffer) {
+  // PPTX 是 zip + XML，直接抓 slide 文本节点比尝试还原整页布局更稳。
   const jszipMod = await import('jszip')
   const JSZip = jszipMod?.default || jszipMod
   const zip = await JSZip.loadAsync(arrayBuffer)
@@ -95,6 +101,7 @@ export async function parsePptxToText(arrayBuffer) {
 }
 
 export async function parseAttachmentText(ext, arrayBuffer) {
+  // 先按扩展名分派到对应解析器，未知类型则直接报错给上层做降级处理。
   if (ext === 'pdf') return await parsePdfToText(arrayBuffer)
   if (ext === 'docx') return await parseDocxToText(arrayBuffer)
   if (ext === 'xlsx' || ext === 'xls') return await parseXlsxToText(arrayBuffer)

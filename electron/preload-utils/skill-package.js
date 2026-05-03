@@ -1,3 +1,4 @@
+// 技能包桥接：负责生成和解析技能包元数据。
 const PACKAGE_KIND = 'ai-tools-skill-package'
 const PACKAGE_SCHEMA_VERSION = 1
 

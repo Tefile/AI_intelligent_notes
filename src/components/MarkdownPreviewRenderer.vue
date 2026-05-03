@@ -1,4 +1,5 @@
 <template>
+  <!-- Markdown 预览渲染器：负责把 Markdown 转成页面预览内容。 -->
   <div ref="previewHostRef" :class="['markdown-preview-renderer', { 'is-streaming': streaming }]">
     <MdPreview
       :editor-id="editorId"

@@ -1,4 +1,5 @@
 <template>
+    <!-- 主布局：左侧菜单 + 右侧页面内容区。 -->
     <n-space vertical size="large" :class="['app-shell', { 'is-dark': theme === 'dark' }]">
         <n-layout has-sider sider-placement="left" class="app-shell__layout">
             <n-layout-sider

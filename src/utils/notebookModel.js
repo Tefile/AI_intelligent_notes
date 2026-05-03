@@ -1,3 +1,4 @@
+// Notebook 数据模型：定义单元、输出和执行状态结构。
 import { normalizeNotebookRuntimeConfig } from './notebookRuntimeConfig.js'
 
 function cloneJson(value) {

@@ -1,3 +1,4 @@
+// 配置监听器：连接本地存储、设置页和各业务模块的配置读写。
 import { computed, ref } from 'vue';
 import { DEFAULT_CHAT_CONTEXT_WINDOW_CONFIG } from '@/utils/chatContextWindow';
 import { getDefaultNoteSecurityConfig } from '@/utils/noteEncryption';
@@ -145,6 +146,13 @@ function init() {
     const applyConfigDetail = (detail) => {
         if (detail && typeof detail === 'object') {
             globalConfig.value = detail;
+        } else if (window?.globalConfig?.getConfig) {
+            try {
+                const cfg = window.globalConfig.getConfig();
+                if (cfg && typeof cfg === 'object') {
+                    globalConfig.value = cfg;
+                }
+            } catch {}
         }
     };
 
@@ -389,17 +397,36 @@ export function cutTheme() {
     return requireGlobalConfigApi().cutTheme();
 }
 
+function refreshGlobalConfigFromBackend() {
+    try {
+        const api = getGlobalConfigApi();
+        if (!api?.getConfig) return null;
+        const cfg = api.getConfig();
+        if (cfg && typeof cfg === 'object') {
+            globalConfig.value = cfg;
+            return cfg;
+        }
+    } catch (err) {
+        console.warn('刷新全局配置失败：', err);
+    }
+    return null;
+}
+
 // dataStorageRoot
 export function getDataStorageRoot() {
     return computed(() => globalConfig.value.dataStorageRoot);
 }
 
 export function setDataStorageRoot(path) {
-    return requireGlobalConfigApi().updateDataStorageRoot(path);
+    const result = requireGlobalConfigApi().updateDataStorageRoot(path);
+    refreshGlobalConfigFromBackend();
+    return result;
 }
 
 export function resetDataStorageRoot() {
-    return requireGlobalConfigApi().resetDataStorageRoot();
+    const result = requireGlobalConfigApi().resetDataStorageRoot();
+    refreshGlobalConfigFromBackend();
+    return result;
 }
 
 // cloudConfig

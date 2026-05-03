@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 内联代码编辑器：在输入框里直接编辑代码片段并提供补全提示。 -->
   <div ref="hostRef" :class="['inline-code-editor', `inline-code-editor--${theme}`]">
     <div
       v-if="signatureHelpState.visible && signatureHelpState.content"
@@ -12,6 +13,7 @@
 </template>
 
 <script setup>
+// 内联代码编辑器：封装 CodeMirror 的补全、提示和高亮能力。
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, hoverTooltip, keymap, lineNumbers, placeholder as placeholderExtension, tooltips } from '@codemirror/view'
 import { autocompletion, completeAnyWord, completionStatus, startCompletion } from '@codemirror/autocomplete'

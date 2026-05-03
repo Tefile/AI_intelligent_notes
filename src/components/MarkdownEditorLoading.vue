@@ -1,4 +1,5 @@
 <template>
+  <!-- 编辑器骨架屏：在 Markdown 编辑器运行时加载前占位。 -->
   <div :class="['markdown-editor-loading', { 'is-dark': theme === 'dark' }]">
     <div class="markdown-editor-loading__toolbar">
       <span class="markdown-editor-loading__chip w-1" />

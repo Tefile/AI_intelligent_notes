@@ -1,4 +1,5 @@
 <template>
+  <!-- 上下文预算面板：展示窗口占用、阈值和风险提示。 -->
   <div
     v-if="budgetStatus?.level && budgetStatus.level !== 'safe'"
     :class="['chat-context-budget-callout', `is-${budgetStatus.level}`, { 'is-dark': theme === 'dark' }]"
@@ -54,4 +55,3 @@ defineProps({
   }
 })
 </script>
-

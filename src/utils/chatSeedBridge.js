@@ -1,3 +1,4 @@
+// 聊天种子桥接：在会话和生成器之间传递可复现的初始数据。
 let pendingChatSeed = null
 const listeners = new Set()
 

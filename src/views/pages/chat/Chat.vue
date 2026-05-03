@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 聊天页总控：消息流、会话切换、模型配置、附件和工具状态都在这里串起来。 -->
   <n-space vertical size="large">
     <n-layout embedded has-sider sider-placement="right">
       <n-layout-content class="chat-layout__content" :content-style="layoutContentStyle">
@@ -77,7 +78,7 @@
             </n-flex>
           </n-button>
         </n-dropdown>
-        <n-tag size="small" bordered>任务 {{ chatWindowTabs.length }}/{{ MAX_TASK_WINDOWS }}</n-tag>
+        <n-tag size="small" bordered>会话 {{ chatWindowTabs.length }}/{{ MAX_TASK_WINDOWS }}</n-tag>
         <n-tooltip
           v-for="win in chatWindowTabs"
           :key="win.id"
@@ -91,7 +92,7 @@
             >
               <n-tag size="small" :type="win.id === activeChatWindowId ? 'primary' : 'default'" bordered>
                 <span class="chat-window-chip__status">
-                  任务
+                  会话
                 </span>
                 <span v-if="chatWindowRenameDraftId !== win.id" class="chat-window-chip__title">{{ win.title }}</span>
                 <n-input
@@ -143,9 +144,20 @@
         <n-tag v-if="selectedProvider" size="small" type="info" bordered>
           服务商：{{ selectedProvider.name || selectedProvider._id }}
         </n-tag>
-        <n-tag v-if="selectedModel" size="small" bordered>
-          模型：{{ selectedModel }}
-        </n-tag>
+        <n-flex v-if="selectedModel" align="center" :size="6">
+          <n-tag size="small" bordered>
+            模型：{{ selectedModel }}
+          </n-tag>
+          <n-tag
+            v-if="showDefaultModelAppliedBadge"
+            size="small"
+            type="success"
+            bordered
+            class="chat-default-model-applied-badge"
+          >
+            当前会话已应用默认模型
+          </n-tag>
+        </n-flex>
         <n-tooltip v-if="selectedAgent" trigger="hover">
           <template #trigger>
             <n-tag size="small" type="success" bordered>
@@ -877,6 +889,8 @@
               multiple
               size="small"
               :options="mcpOptions"
+              :render-label="renderMcpOptionLabel"
+              :menu-props="mcpSelectMenuProps"
               placeholder="选择 MCP 服务（可选）"
               filterable
               clearable
@@ -1005,7 +1019,7 @@ import {
   SaveOutline
 } from '@vicons/ionicons5'
 
-import { getOrCreateMCPClient, getMcpPrompt, releaseMCPClient, closePooledMCPClient, closeAllPooledMCPClients } from '@/utils/mcpClient'
+import { getOrCreateMCPClient, getMcpPrompt, releaseMCPClient, closePooledMCPClient, closeAllPooledMCPClients, prepareMcpServerForBridge } from '@/utils/mcpClient'
 import { getTheme, getAgents, getProviders, getPrompts, getSkills, getMcpServers, getChatConfig, readSkillFile as readSkillRegistryFile, runSkillScript as runSkillRegistryScript, updateChatConfig } from '@/utils/configListener'
 import { buildRequestOverridesFromAgentModelParams, getAgentReasoningEffortOverride, normalizeAgentModelParams } from '@/utils/agentModelParams'
 import { parseAttachmentTextWithFallback, resetAttachmentTextParserWorker } from '@/utils/attachmentTextParser'
@@ -1176,29 +1190,39 @@ const chatWindowSeed = reactive({
 const windowStateSyncing = ref(false)
 let chatWindowsPersistTimer = null
 const activeChatWindow = computed(() => findChatWindow(activeChatWindowId.value) || null)
+const activeChatWindowHasDialogue = computed(() => {
+  const current = activeChatWindow.value
+  if (!current) return false
+  const messageCount = Array.isArray(current.session?.messages) ? current.session.messages.length : 0
+  const apiMessageCount = Array.isArray(current.session?.apiMessages) ? current.session.apiMessages.length : 0
+  return messageCount > 0 || apiMessageCount > 0
+})
+const hasAnyChatWindowSending = computed(() => chatWindows.value.some((item) => getChatWindowSendingState(item)))
 const canCreateChildChatWindow = computed(
-  () => chatWindows.value.filter((item) => !isMainChatWindowId(item?.id)).length < MAX_TASK_WINDOWS
+  () =>
+    activeChatWindowHasDialogue.value &&
+    chatWindows.value.filter((item) => !isMainChatWindowId(item?.id)).length < MAX_TASK_WINDOWS
 )
 const chatSessionMenuOptions = computed(() => [
   {
-    label: '新建任务',
+    label: '新建会话',
     key: 'create-child-chat-window',
     disabled: !canCreateChildChatWindow.value
   },
   ...(chatWindowTabs.value.length
     ? [
         {
-          label: `任务列表（${chatWindowTabs.value.length}）`,
+          label: `会话列表（${chatWindowTabs.value.length}）`,
           key: 'task-window-list',
           children: chatWindowTabs.value.map((item) => ({
             label: item.id === activeChatWindowId.value ? `${item.title}（当前）` : item.title,
             key: `activate-chat-window:${item.id}`
           }))
         }
-      ]
+    ]
     : [
         {
-          label: '暂无任务',
+          label: '暂无会话',
           key: 'task-window-empty',
           disabled: true
         }
@@ -1242,11 +1266,11 @@ function syncChatWindowMeta(windowState) {
 }
 
 function buildDefaultChildChatWindowTitle(index) {
-  return `任务 ${index}`
+  return '会话'
 }
 
 function getNextChildChatWindowTitle() {
-  return buildDefaultChildChatWindowTitle(chatWindows.value.filter((item) => !isMainChatWindowId(item?.id)).length + 1)
+  return buildDefaultChildChatWindowTitle()
 }
 
 function createMainChatWindowState(overrides = {}) {
@@ -1257,31 +1281,74 @@ function createMainChatWindowState(overrides = {}) {
   })
 }
 
+function shouldArchiveChatWindowAfterStream(windowState) {
+  return !!windowState?.archiveOnStreamEnd
+}
+
+function setArchiveChatWindowAfterStream(windowState, next) {
+  if (!windowState || typeof windowState !== 'object') return
+  windowState.archiveOnStreamEnd = !!next
+}
+
+function removeChatWindowById(id, options = {}) {
+  const targetId = String(id || '').trim()
+  if (!targetId) return null
+
+  const index = chatWindows.value.findIndex((item) => item.id === targetId)
+  if (index < 0) return null
+
+  const targetWindow = chatWindows.value[index]
+  const wasActive = targetId === activeChatWindowId.value
+  if (wasActive) {
+    flushCurrentSessionAutosaveOnWindowChange()
+    saveActiveChatWindowSnapshot()
+  }
+
+  chatWindows.value.splice(index, 1)
+
+  if (wasActive) {
+    const fallback = chatWindows.value[Math.max(0, index - 1)] || chatWindows.value[0]
+    if (fallback) {
+      activeChatWindowId.value = fallback.id
+      applyChatWindowSnapshot(fallback, { resetPickerState: true })
+    }
+  }
+
+  if (chatWindowRenameDraftId.value === targetId) {
+    chatWindowRenameDraftId.value = ''
+    chatWindowRenameDraft.value = ''
+  }
+
+  if (options.persist !== false) {
+    persistChatWindowsState()
+  }
+
+  return targetWindow
+}
+
 const chatWindowTabs = computed(() => {
-  let childIndex = 0
   const normalized = chatWindows.value
     .filter((item) => !isMainChatWindowId(item?.id))
     .map((item) => {
-    const isActive = item.id === activeChatWindowId.value
-    const source = isActive ? captureChatWindowSnapshot({ preserveSessionRefs: true }) : item
-    childIndex += 1
-    return {
-      id: source.id,
-      title: source.title || buildDefaultChildChatWindowTitle(childIndex),
-      messageCount: Array.isArray(source.session?.messages) ? source.session.messages.length : 0,
-      unreadCount: Math.max(0, Number(source.unreadCount || 0)),
-      activeSessionFilePath: source.activeSessionFilePath || '',
-      activeSessionTitle: source.activeSessionTitle || '',
-      hasUnsavedChanges: computeChatWindowUnsavedChanges(source)
-    }
-  })
+      const isActive = item.id === activeChatWindowId.value
+      const source = isActive ? captureChatWindowSnapshot({ preserveSessionRefs: true }) : item
+      return {
+        id: source.id,
+        title: source.title || buildDefaultChildChatWindowTitle(),
+        messageCount: Array.isArray(source.session?.messages) ? source.session.messages.length : 0,
+        unreadCount: Math.max(0, Number(source.unreadCount || 0)),
+        activeSessionFilePath: source.activeSessionFilePath || '',
+        activeSessionTitle: source.activeSessionTitle || '',
+        hasUnsavedChanges: computeChatWindowUnsavedChanges(source)
+      }
+    })
 
   return normalized
 })
 
 function chatWindowTooltipText(windowTab) {
   if (!windowTab || typeof windowTab !== 'object') return ''
-  const parts = ['任务会话只做运行期缓存，关闭后默认丢失']
+  const parts = ['会话只做运行期缓存，关闭后默认丢失']
   if (windowTab.activeSessionTitle) {
     parts.push(`已绑定历史记录：${windowTab.activeSessionTitle}`)
   }
@@ -1542,14 +1609,25 @@ function activateChatWindow(id, options = {}) {
 function createChatWindow(options = {}) {
   ensureChatWindows()
   if (!canCreateChildChatWindow.value) {
-    message.warning(`最多可同时保留 ${MAX_TASK_WINDOWS} 个任务`)
+    message.warning('当前会话还没有进入问答，不能新建会话')
     return null
   }
+  if (chatWindows.value.filter((item) => !isMainChatWindowId(item?.id)).length >= MAX_TASK_WINDOWS) {
+    message.warning(`最多可同时保留 ${MAX_TASK_WINDOWS} 个会话`)
+    return null
+  }
+  const currentWindow = findChatWindow(activeChatWindowId.value)
+  const currentIndex = chatWindows.value.findIndex((item) => item.id === activeChatWindowId.value)
+  if (getChatWindowSendingState(currentWindow)) {
+    setArchiveChatWindowAfterStream(currentWindow, true)
+  }
+  saveActiveChatWindowSnapshot()
   const next = createEmptyChatWindowState({
-    title: String(options.title || getNextChildChatWindowTitle()),
+    title: String(options.title || getNextChildChatWindowTitle()).trim(),
     sessionSiderCollapsed: true
   })
-  chatWindows.value.push(next)
+  const insertIndex = currentIndex >= 0 ? currentIndex : chatWindows.value.length
+  chatWindows.value.splice(insertIndex, 0, next)
   activateChatWindow(next.id, { resetPickerState: true })
   if (options.seedText) {
     input.value = String(options.seedText || '')
@@ -1567,7 +1645,7 @@ function closeChatWindow(id) {
   if (!targetId || chatWindows.value.length <= 1) return
   const targetWindow = findChatWindow(targetId)
   if (getChatWindowSendingState(targetWindow)) {
-    message.warning('该任务正在生成中，请先切回并停止后再关闭')
+    message.warning('该会话正在生成中，请先切回并停止后再关闭')
     return
   }
   const index = chatWindows.value.findIndex((item) => item.id === targetId)
@@ -1817,6 +1895,27 @@ const imageGenerationMode = ref('auto') // auto | on | off
 const videoGenerationMode = ref('auto') // auto | on | off
 
 const hasAppliedDefaultModel = ref(false)
+const showDefaultModelAppliedBadge = ref(false)
+const hasShownDefaultModelAppliedBadge = ref(false)
+let defaultModelAppliedBadgeTimer = null
+
+function clearDefaultModelAppliedBadgeTimer() {
+  if (defaultModelAppliedBadgeTimer) {
+    window.clearTimeout(defaultModelAppliedBadgeTimer)
+    defaultModelAppliedBadgeTimer = null
+  }
+}
+
+function flashDefaultModelAppliedBadge() {
+  clearDefaultModelAppliedBadgeTimer()
+  hasShownDefaultModelAppliedBadge.value = true
+  showDefaultModelAppliedBadge.value = true
+  // 这个提示只在首次自动应用默认模型时短暂闪一下，后面就不再常驻干扰。
+  defaultModelAppliedBadgeTimer = window.setTimeout(() => {
+    showDefaultModelAppliedBadge.value = false
+    defaultModelAppliedBadgeTimer = null
+  }, 1600)
+}
 
 const COMPACT_CHAT_BREAKPOINT = 980
 const DENSE_CHAT_BREAKPOINT = 720
@@ -2718,10 +2817,49 @@ const orderedMcpServers = computed(() => {
 const mcpOptions = computed(() => {
   return orderedMcpServers.value.map((s) => ({
     label: s.name || s._id,
+    name: s.name || s._id,
+    transportType: s.transportType || s.type || '未知',
+    shortType: getMcpShortTypeLabel(s),
     value: s._id,
     disabled: !!s.disabled
   }))
 })
+
+const mcpSelectMenuProps = {
+  class: 'chat-mcp-select-menu',
+  style: {
+    '--n-option-height': '20px',
+    '--n-option-padding': '0 8px',
+    '--n-option-padding-left': '8px',
+    '--n-option-padding-right': '8px'
+  }
+}
+
+function renderMcpOptionLabel(option) {
+  const name = String(option?.name || option?.label || option?._id || '').trim()
+  const id = String(option?._id || option?.value || '').trim()
+  const type = String(option?.transportType || option?.type || '未知').trim() || '未知'
+
+  return h('div', { class: 'chat-mcp-select-option' }, [
+    h('span', { class: 'chat-mcp-select-option__name' }, name || '未命名'),
+    h('span', { class: 'chat-mcp-select-option__id' }, id || '未知'),
+    h('span', { class: 'chat-mcp-select-option__type' }, `类型：${type}`)
+  ])
+}
+
+function getMcpShortTypeLabel(server) {
+  const type = String(server?.transportType || server?.type || '').trim()
+  const map = {
+    builtinNotes: 'BUILTINNOTES',
+    builtinSessions: 'BUILTINSESSIONS',
+    builtinConfig: 'BUILTINCONFIG',
+    builtinAgents: 'BUILTINAGENTS'
+  }
+  if (map[type]) return map[type]
+
+  const normalized = type.replace(/[^a-z0-9]+/gi, '').toUpperCase()
+  return normalized || 'MCP'
+}
 
 const selectedAgent = computed(() => {
   if (!selectedAgentId.value) return null
@@ -2802,6 +2940,7 @@ const inlineCommandSuggestions = computed(() => {
           label: item.token,
           description: item.description,
           meta: item.aliases.length ? item.aliases.map((alias) => `/${alias}`).join(' ') : '',
+          shortType: item.aliases.length ? item.aliases.map((alias) => `/${alias}`).join(' ') : '',
           selected: false,
           selectedTag: '',
           score
@@ -2832,6 +2971,7 @@ const inlineCommandSuggestions = computed(() => {
           label: label || id,
           description,
           meta: '本地',
+          shortType: '本地',
           selected,
           selectedTag: '当前',
           score
@@ -2846,7 +2986,8 @@ const inlineCommandSuggestions = computed(() => {
         if (!serverId || !name) return null
         const label = String(item?.label || name).trim()
         const description = truncateInlineText(item?.description, 72)
-        const meta = ['MCP', item?.serverName || serverId, item?.arguments?.length ? `参数 ${item.arguments.length}` : ''].filter(Boolean).join(' · ')
+        const server = (mcpServers.value || []).find((candidate) => candidate?._id === serverId) || null
+        const meta = server ? getMcpShortTypeLabel(server) : 'MCP'
         const score = query
           ? getInlinePickerMatchScore([label, name, serverId, item?.serverName, description, meta], query)
           : 12
@@ -2857,6 +2998,7 @@ const inlineCommandSuggestions = computed(() => {
           label,
           description,
           meta,
+          shortType: meta,
           selected: false,
           selectedTag: '',
           score,
@@ -2891,6 +3033,7 @@ const inlineCommandSuggestions = computed(() => {
           label: label || id,
           description,
           meta,
+          shortType: meta || '',
           selected,
           selectedTag: '已选中',
           score
@@ -2914,13 +3057,8 @@ const inlineCommandSuggestions = computed(() => {
         const manualSelected = manualIdSet.has(id)
         const derivedSelected = derivedIdSet.has(id)
         const selected = manualSelected || derivedSelected
-        const metaParts = []
-        const transportType = String(server?.transportType || '').trim().toUpperCase()
-        if (transportType) metaParts.push(transportType)
-        if (derivedSelected && !manualSelected) metaParts.push('技能')
-        if (disabled) metaParts.push('已禁用')
-        const meta = metaParts.join(' · ')
-        const description = truncateInlineText(server?.description || server?.url || server?.baseUrl || server?.command, 72)
+        const meta = getMcpShortTypeLabel(server)
+        const description = truncateInlineText(server?.description || '', 72)
         const score = query
           ? getInlinePickerMatchScore([label, id, description, meta], query)
           : manualSelected ? -2 : derivedSelected ? -1 : disabled ? 20 : 10
@@ -2931,6 +3069,7 @@ const inlineCommandSuggestions = computed(() => {
           label: label || id,
           description,
           meta,
+          shortType: meta,
           selected,
           selectedTag: manualSelected ? '已选中' : derivedSelected ? '技能' : '',
           disabled,
@@ -3676,7 +3815,7 @@ const modelTooltipText = computed(() => {
   return `模型：${t}`
 })
 
- const defaultModelText = computed(() => {
+const defaultModelText = computed(() => {
   const pid = String(chatConfig.value?.defaultProviderId || '').trim()
   const m = String(chatConfig.value?.defaultModel || '').trim()
   if (!pid || !m) return ''
@@ -3703,11 +3842,21 @@ async function toggleDefaultModel(providerId, model) {
       return
     }
 
+    // 同一个模型再次点击时，视为取消默认值；否则就把它写回配置并立刻同步到当前会话。
     if (same) {
       await updateChatConfig({ defaultProviderId: '', defaultModel: '' })
+      if (selectedProviderId.value === pid && selectedModel.value === m) {
+        selectedProviderId.value = null
+        selectedModel.value = ''
+        hasAppliedDefaultModel.value = false
+      }
       message.success('已清除默认模型')
     } else {
       await updateChatConfig({ defaultProviderId: pid, defaultModel: m })
+      selectedProviderId.value = pid
+      selectedModel.value = m
+      hasAppliedDefaultModel.value = true
+      persistChatWindowsState()
       message.success('已设为默认模型')
     }
   } catch (err) {
@@ -6673,8 +6822,8 @@ function serializeDisplayMessageForSave(msg) {
 }
 
 const CHAT_HISTORY_ROOT_DIR = 'session/历史会话'
-const TASK_HISTORY_SESSION_DIR = `${CHAT_HISTORY_ROOT_DIR}/任务记录`
-const AUTO_ARCHIVED_SESSION_DIR = `${CHAT_HISTORY_ROOT_DIR}/自动保存`
+const TASK_HISTORY_SESSION_DIR = CHAT_HISTORY_ROOT_DIR
+const AUTO_ARCHIVED_SESSION_DIR = `${CHAT_HISTORY_ROOT_DIR}`
 const AUTO_ARCHIVED_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 function resolveChatWindowStateForSave(windowStateLike = null) {
@@ -6767,7 +6916,7 @@ function buildAutoArchivedSessionName(date = new Date()) {
   const mi = pad(date.getMinutes())
   const ss = pad(date.getSeconds())
   const ms = pad(date.getMilliseconds(), 3)
-  return `自动保存-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${ms}`
+  return `自动保存-${yyyy}年${mm}月${dd}日 ${hh}时${mi}分${ss}秒${ms}毫秒`
 }
 
 function buildTaskHistorySessionFilePath(windowStateLike, date = new Date()) {
@@ -6780,9 +6929,9 @@ function buildTaskHistorySessionFilePath(windowStateLike, date = new Date()) {
   const ss = pad(date.getSeconds())
   const ms = pad(date.getMilliseconds(), 3)
   const baseTitle = sanitizeSessionFileStem(
-    String(windowStateLike?.title || '').trim() || buildDefaultChildChatWindowTitle(1)
+    String(windowStateLike?.title || '').trim() || buildDefaultChildChatWindowTitle()
   )
-  return `${TASK_HISTORY_SESSION_DIR}/${baseTitle}-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${ms}.json`
+  return `${TASK_HISTORY_SESSION_DIR}/${baseTitle}-${yyyy}年${mm}月${dd}日 ${hh}时${mi}分${ss}秒${ms}毫秒.json`
 }
 
 function chatWindowHasMeaningfulContent(windowStateLike = {}) {
@@ -6898,6 +7047,16 @@ async function persistTaskHistoryAfterStream(windowStateLike) {
   }
 }
 
+async function archiveCompletedChatWindow(windowStateLike) {
+  const archived = await persistTaskHistoryAfterStream(windowStateLike)
+  const windowState = windowStateLike && typeof windowStateLike === 'object' ? windowStateLike : null
+  if (!archived || !windowState || !shouldArchiveChatWindowAfterStream(windowState)) return archived
+
+  setArchiveChatWindowAfterStream(windowState, false)
+  removeChatWindowById(windowState.id)
+  return archived
+}
+
 let sessionAutosaveTimer = null
 let lastSessionAutosaveAt = 0
 let sessionAutosaveInFlight = false
@@ -6998,6 +7157,7 @@ function scheduleSessionAutosave(options = {}) {
 }
 
 function resetChatRuntimeState() {
+  // 切换会话或重置页面时，只清理这次运行的临时状态，不动持久化内容。
   typewriterFlushAll()
   clearAllUserEditingState()
   clearSessionData(session)
@@ -7008,6 +7168,10 @@ function resetChatRuntimeState() {
   input.value = ''
   pendingAttachments.value = []
   abortController.value = null
+  hasAppliedDefaultModel.value = false
+  hasShownDefaultModelAppliedBadge.value = false
+  showDefaultModelAppliedBadge.value = false
+  clearDefaultModelAppliedBadgeTimer()
 }
 
 function hasUncommittedChatDraft(targetPath = '') {
@@ -7498,7 +7662,8 @@ function applyAgent(agentId) {
 
 function tryApplyDefaultModelFromConfig(options = {}) {
   const force = !!options.force
-  if (!force && hasAppliedDefaultModel.value) return false
+  // 只在“还没有人手工选模型”的前提下自动套默认值，避免覆盖用户刚刚选的内容。
+  if (!force && hasAppliedDefaultModel.value && selectedProviderId.value && selectedModel.value) return false
 
   if (!force && (selectedAgentId.value || selectedProviderId.value || selectedModel.value)) {
     hasAppliedDefaultModel.value = true
@@ -7526,6 +7691,7 @@ function tryApplyDefaultModelFromConfig(options = {}) {
   const finalModel = modelId && models.includes(modelId) ? modelId : models[0]
   selectedProviderId.value = String(provider._id || '').trim()
   selectedModel.value = String(finalModel || '').trim()
+  if (!hasShownDefaultModelAppliedBadge.value) flashDefaultModelAppliedBadge()
   hasAppliedDefaultModel.value = true
   return true
 }
@@ -7552,6 +7718,7 @@ function stop() {
 
 onBeforeUnmount(() => {
   saveActiveChatWindowSnapshot()
+  clearDefaultModelAppliedBadgeTimer()
   if (chatWindowsPersistTimer) {
     clearTimeout(chatWindowsPersistTimer)
     chatWindowsPersistTimer = null
@@ -9319,9 +9486,12 @@ async function runChatSession({
     window.clearTimeout(requestTimeoutTimer)
     setChatWindowSendingState(runtimeWindowState, false)
     setChatWindowAbortState(runtimeWindowState, null)
+    if (!completedNormally && runtimeWindowState) {
+      setArchiveChatWindowAfterStream(runtimeWindowState, false)
+    }
     if (completedNormally) {
       try {
-        await persistTaskHistoryAfterStream(runtimeWindowState)
+        await archiveCompletedChatWindow(runtimeWindowState)
       } catch (err) {
         message.error('任务归档失败：' + (err?.message || String(err)))
       }
@@ -10131,6 +10301,9 @@ async function resetChatSetup() {
   selectedProviderId.value = null
   selectedModel.value = ''
   hasAppliedDefaultModel.value = false
+  hasShownDefaultModelAppliedBadge.value = false
+  showDefaultModelAppliedBadge.value = false
+  clearDefaultModelAppliedBadgeTimer()
   tryApplyDefaultModelFromConfig({ force: true })
 
   message.success('已重置为初始状态')
@@ -10649,6 +10822,11 @@ function closeMcpClientSafely(server, client, pooled = false) {
   }
 }
 
+function prepareChatMcpServer(server) {
+  // MCP 连接跨进程前先做一次桥接层规范化，避免把响应式对象直接传过去。
+  return prepareMcpServerForBridge(server)
+}
+
 function registerAbortableMcpClient(abortState, server, client, pooled = false) {
   if (!abortState?.onAbort || !client) return null
   return abortState.onAbort(() => {
@@ -10728,6 +10906,7 @@ async function listMcpToolsForServer(server, options = {}) {
   const cacheKey = getMcpToolsCacheKey(server)
   const now = Date.now()
 
+  // 先用缓存顶住高频打开，再在后台按超时控制去刷新真实列表。
   const cached = mcpListToolsCache.get(cacheKey)
   if (!forceRefresh && cached && now - cached.at < MCP_LIST_TOOLS_TTL_MS) {
     if (status) {
@@ -10750,7 +10929,8 @@ async function listMcpToolsForServer(server, options = {}) {
     let pooled = false
     let unregisterAbort = null
     try {
-      ;({ client, pooled } = getOrCreateMCPClient(server))
+      const bridgeServer = prepareChatMcpServer(server)
+      ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
       if (!client?.listTools) {
         throw new Error('MCP 客户端不可用（未注入 createMCPClient）')
       }
@@ -10768,7 +10948,7 @@ async function listMcpToolsForServer(server, options = {}) {
       }
       unregisterAbort = null
       throwIfAborted(abortState)
-      releaseMCPClient(server, client)
+      releaseMCPClient(bridgeServer, client)
       client = null
 
       const tools = Array.isArray(list) ? list : Array.isArray(list?.tools) ? list.tools : []
@@ -10846,7 +11026,8 @@ async function listMcpPromptsForServer(server, options = {}) {
     let pooled = false
     let unregisterAbort = null
     try {
-      ;({ client, pooled } = getOrCreateMCPClient(server))
+      const bridgeServer = prepareChatMcpServer(server)
+      ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
       if (!client?.listPrompts) {
         throw new Error('MCP 客户端不支持 prompts/list')
       }
@@ -10864,7 +11045,7 @@ async function listMcpPromptsForServer(server, options = {}) {
       }
       unregisterAbort = null
       throwIfAborted(abortState)
-      releaseMCPClient(server, client)
+      releaseMCPClient(bridgeServer, client)
       client = null
 
       const promptsList = Array.isArray(list) ? list : Array.isArray(list?.prompts) ? list.prompts : []
@@ -11009,12 +11190,14 @@ async function applyMcpPromptToComposer(item, args) {
   let client = null
   let pooled = false
   try {
-    ;({ client, pooled } = getOrCreateMCPClient(server))
+    // 先拿 prompt 内容，再把结果插回输入框，而不是直接把原始返回值丢给用户。
+    const bridgeServer = prepareChatMcpServer(server)
+    ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
     if (!client?.getPrompt && !client?.sendRequest) throw new Error('MCP 客户端不支持 prompts/get')
 
     const timeoutMs = Number(server?.timeout) || 30000
     const result = await withTimeout(getMcpPrompt(client, promptName, args), timeoutMs, `获取 MCP 提示词：${server.name || server._id} / ${promptName}`)
-    releaseMCPClient(server, client)
+    releaseMCPClient(bridgeServer, client)
     client = null
 
     insertTextIntoComposer(formatMcpPromptResultForComposer(result, item))
@@ -11261,6 +11444,7 @@ function buildProviderToolDefinition(inputSchemaRaw) {
 
 function buildProviderToolDescription(server, tool, definition) {
   const base = tool?.description ? `[${server.name || server._id}] ${tool.description}` : `[${server.name || server._id}] ${tool?.name || ''}`
+  // 有些 MCP 的 inputSchema 顶层不是 object，这里只在描述里提醒模型补一层 input。
   if (!definition?.wrapped) return base
   return `${base} (the original inputSchema top level is not an object; call it with {"input": ...})`
 }
@@ -11303,14 +11487,15 @@ async function buildToolsBundle() {
     let client = null
     let pooled = false
     try {
-      ;({ client, pooled } = getOrCreateMCPClient(server))
+      const bridgeServer = prepareChatMcpServer(server)
+      ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
       if (!client?.listTools) {
         throw new Error('MCP 客户端不可用（createMCPClient 未注入）')
       }
 
       const listTimeoutMs = Number(server?.timeout) || 10000
       const list = await withTimeout(client.listTools(), listTimeoutMs, `获取 MCP 工具列表：${server.name || server._id}`)
-      releaseMCPClient(server, client)
+      releaseMCPClient(bridgeServer, client)
       client = null
 
       const allow = Array.isArray(server.allowTools) ? server.allowTools : []
@@ -12196,9 +12381,11 @@ async function executeToolCall(toolCall, toolMap, lastReasoningText, abortState 
   const toolName = mapping?.toolName || fn
 
   const parsedArgs = safeJsonParse(argsRaw)
+  // 先把参数尽量还原成对象，后续才能统一显示、确认和真正执行。
   const argsObj = parsedArgs.ok && parsedArgs.value && typeof parsedArgs.value === 'object' ? parsedArgs.value : {}
   const argsText = parsedArgs.ok ? stableStringify(parsedArgs.value) : argsRaw
 
+  // 先塞一个“正在执行”的占位消息，让会话流尽快反馈工具调用已接收。
   const pendingToolMessage = createPendingToolExecutionMessage({
     serverName,
     toolName,
@@ -13067,7 +13254,8 @@ async function executeToolCall(toolCall, toolMap, lastReasoningText, abortState 
     let pooled = false
     let unregisterAbort = null
     try {
-      ;({ client, pooled } = getOrCreateMCPClient(server))
+      const bridgeServer = prepareChatMcpServer(server)
+      ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
       if (!client?.callTool) {
         throw new Error('MCP 客户端不可用（未注入 createMCPClient）')
       }
@@ -13086,7 +13274,7 @@ async function executeToolCall(toolCall, toolMap, lastReasoningText, abortState 
       }
       unregisterAbort = null
       throwIfAborted(abortState)
-      releaseMCPClient(server, client)
+      releaseMCPClient(bridgeServer, client)
       client = null
 
       const images = extractChatImagesFromToolResult(result)
@@ -13167,7 +13355,8 @@ async function executeToolCall(toolCall, toolMap, lastReasoningText, abortState 
   let pooled = false
   let unregisterAbort = null
   try {
-    ;({ client, pooled } = getOrCreateMCPClient(server))
+    const bridgeServer = prepareChatMcpServer(server)
+    ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
     if (!client?.callTool) {
       throw new Error('MCP 客户端不可用（createMCPClient 未注入）')
     }
@@ -13187,7 +13376,7 @@ async function executeToolCall(toolCall, toolMap, lastReasoningText, abortState 
     }
     unregisterAbort = null
     throwIfAborted(abortState)
-    releaseMCPClient(server, client)
+    releaseMCPClient(bridgeServer, client)
     client = null
 
     const images = extractChatImagesFromToolResult(result)
@@ -13251,6 +13440,10 @@ async function executeToolCall(toolCall, toolMap, lastReasoningText, abortState 
 
 async function send() {
   if (sending.value) return
+  if (hasAnyChatWindowSending.value) {
+    message.warning('当前有会话正在生成中，请先停止或等待结束后再发送')
+    return
+  }
   saveActiveChatWindowSnapshot()
   clearAllUserEditingState()
   const sessionState = {
@@ -14266,6 +14459,30 @@ async function send() {
   background: transparent;
 }
 
+.chat-default-model-applied-badge {
+  animation: chat-default-model-applied-flash 1.6s ease-in-out;
+  transform-origin: left center;
+}
+
+@keyframes chat-default-model-applied-flash {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  18% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  68% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+}
+
 @media (max-width: 960px) {
   .chat-page {
     max-width: none;
@@ -14327,5 +14544,55 @@ async function send() {
   .chat-file-attachment-card {
     max-width: 100%;
   }
+}
+
+:deep(.chat-mcp-select-menu .n-base-select-option) {
+  min-height: 20px;
+  height: 20px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:deep(.chat-mcp-select-menu .n-base-select-option__content) {
+  min-height: 20px;
+  line-height: 20px;
+}
+
+:deep(.chat-mcp-select-menu .chat-mcp-select-option) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+
+:deep(.chat-mcp-select-menu .chat-mcp-select-option__name) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+:deep(.chat-mcp-select-menu .chat-mcp-select-option__id) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(71, 85, 105, 0.86);
+}
+
+:deep(.chat-mcp-select-menu .chat-mcp-select-option__type) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(100, 116, 139, 0.9);
+}
+
+.chat-page.is-dark :deep(.chat-mcp-select-menu .chat-mcp-select-option__id) {
+  color: rgba(203, 213, 225, 0.9);
+}
+
+.chat-page.is-dark :deep(.chat-mcp-select-menu .chat-mcp-select-option__type) {
+  color: rgba(226, 232, 240, 0.88);
 }
 </style>

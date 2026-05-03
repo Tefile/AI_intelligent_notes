@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 笔记模板设置页：管理默认模板、分类和插入规则。 -->
   <n-flex
     vertical
     align="center"

@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 笔记页总控：管理左侧文件树、顶部标签和编辑区域。 -->
   <n-space vertical size="large" :class="['note-page', { 'is-dark': theme === 'dark' }]">
     <n-layout embedded has-sider sider-placement="right" :native-scrollbar="false" :scrollbar-props="{ trigger: 'none' }" class="note-page__layout">
       <n-layout-content class="note-page__content" content-style="padding: 8px 24px 8px 8px;height: calc(100vh - 30px);">

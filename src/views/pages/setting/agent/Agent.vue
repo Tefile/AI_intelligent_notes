@@ -1,4 +1,5 @@
 <template>
+  <!-- 智能体设置页：管理 Agent 的创建、编辑和启停。 -->
   <n-flex
     vertical
     align="center"
@@ -152,6 +153,8 @@
             v-model:value="formData.mcp"
             multiple
             :options="mcpOptions"
+            :render-label="renderMcpOptionLabel"
+            :menu-props="mcpSelectMenuProps"
             placeholder="请选择 MCP 服务器（可选）"
             clearable
             filterable
@@ -314,7 +317,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, h } from 'vue'
 import {
   NCard, NFlex, NIcon, NButton, NInput, NTag, NEllipsis, NText,
   NModal, NForm, NFormItem, NSelect, NInputNumber, NCollapseTransition, useDialog, useMessage
@@ -355,6 +358,28 @@ const providerOptions = computed(() => providers.value || [])
 const promptOptions = computed(() => prompts.value || [])
 const skillOptions = computed(() => skills.value || [])
 const mcpOptions = computed(() => mcps.value || [])
+
+const mcpSelectMenuProps = {
+  class: 'agent-mcp-select-menu',
+  style: {
+    '--n-option-height': '20px',
+    '--n-option-padding': '0 8px',
+    '--n-option-padding-left': '8px',
+    '--n-option-padding-right': '8px'
+  }
+}
+
+function renderMcpOptionLabel(option) {
+  const name = String(option?.name || option?.label || option?._id || '').trim()
+  const id = String(option?._id || option?.value || '').trim()
+  const type = String(option?.transportType || option?.type || '未知').trim() || '未知'
+
+  return h('div', { class: 'agent-mcp-select-option' }, [
+    h('span', { class: 'agent-mcp-select-option__name' }, name || '未命名'),
+    h('span', { class: 'agent-mcp-select-option__id' }, id || '未知'),
+    h('span', { class: 'agent-mcp-select-option__type' }, `类型：${type}`)
+  ])
+}
 
 // 辅助函数：根据 id 获取名称
 const getProviderName = (id) => {
@@ -672,5 +697,55 @@ const confirmDelete = (agent) => {
   .agent-advanced-field--wide {
     grid-column: auto;
   }
+}
+
+:deep(.agent-mcp-select-menu .n-base-select-option) {
+  min-height: 20px;
+  height: 20px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:deep(.agent-mcp-select-menu .n-base-select-option__content) {
+  min-height: 20px;
+  line-height: 20px;
+}
+
+:deep(.agent-mcp-select-menu .agent-mcp-select-option) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+
+:deep(.agent-mcp-select-menu .agent-mcp-select-option__name) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+:deep(.agent-mcp-select-menu .agent-mcp-select-option__id) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(71, 85, 105, 0.86);
+}
+
+:deep(.agent-mcp-select-menu .agent-mcp-select-option__type) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(100, 116, 139, 0.9);
+}
+
+.settings-page.is-dark :deep(.agent-mcp-select-menu .agent-mcp-select-option__id) {
+  color: rgba(203, 213, 225, 0.9);
+}
+
+.settings-page.is-dark :deep(.agent-mcp-select-menu .agent-mcp-select-option__type) {
+  color: rgba(226, 232, 240, 0.88);
 }
 </style>

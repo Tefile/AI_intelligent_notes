@@ -1,3 +1,4 @@
+// 笔记类型定义：描述 markdown、notebook 和附属类型。
 const NOTE_TYPE_DEFS = Object.freeze({
   markdown: Object.freeze({
     type: 'markdown',

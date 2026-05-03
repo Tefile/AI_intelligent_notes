@@ -1,3 +1,4 @@
+// 聊天工具展示工具：负责识别工具结果和生成可读标题。
 export function isAgentRunToolResult(result) {
   return !!result && typeof result === 'object' && !Array.isArray(result) && result.kind === 'agent_run_result'
 }
@@ -75,6 +76,7 @@ export function formatAgentRunToolResultForDisplay(result, options = {}) {
   const errorText = String(payload?.error || '').trim()
   const trace = Array.isArray(payload?.trace) ? payload.trace : []
 
+  // 子智能体结果比普通工具复杂很多，这里统一拆成“摘要 + 指标 + 轨迹 + 错误”四块。
   const lines = [
     '### 子智能体执行结果',
     `- 服务：**${serverName}**`,
@@ -110,6 +112,7 @@ export function formatToolResultDisplayContent(result, options = {}) {
   const imageHint = String(options.imageHint || '')
   const resultText = String(options.resultText || '').trim()
 
+  // 子智能体结果走专门的摘要模板，其它工具保持 JSON 展示，减少信息丢失。
   if (isAgentRunToolResult(result)) {
     return formatAgentRunToolResultForDisplay(result, options)
   }

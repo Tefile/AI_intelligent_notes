@@ -1,3 +1,4 @@
+// 笔记图片上传工具：统一上传、压缩和返回可预览地址。
 import path from 'path-browserify'
 import { NOTE_EXTENSIONS } from './noteTypes.js'
 import { toPosixPath } from './notePathUtils'

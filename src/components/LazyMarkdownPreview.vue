@@ -1,4 +1,5 @@
 <template>
+  <!-- 懒加载 Markdown 预览：统一走同一套运行时和样式。 -->
   <MarkdownPreviewRenderer v-bind="props" />
 </template>
 

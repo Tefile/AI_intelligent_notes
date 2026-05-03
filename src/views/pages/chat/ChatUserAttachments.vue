@@ -1,4 +1,5 @@
 <template>
+  <!-- 用户附件区：展示消息里携带的图片和文件。 -->
   <div
     v-if="!msg.editing && ((msg.images && msg.images.length) || (msg.attachments && msg.attachments.length))"
     :class="['chat-page', theme]"

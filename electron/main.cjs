@@ -16,6 +16,7 @@ const db = require('./db.cjs')
 
 const isDev = process.env.NODE_ENV === 'development'
 const DEV_URL = 'http://localhost:5173'
+const shouldOpenDevTools = /^(1|true|yes)$/i.test(String(process.env.OPEN_DEVTOOLS || ''))
 const userDataOverride = String(process.env.AI_TOOLS_USER_DATA_DIR || '').trim()
 const rendererEntryPath = path.join(__dirname, '..', 'dist', 'index.html')
 const logPrefix = '[main]'
@@ -173,7 +174,9 @@ function createMainWindow() {
   if (isDev) {
     logInfo('loadURL', DEV_URL)
     mainWindow.loadURL(DEV_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+    if (shouldOpenDevTools) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' })
+    }
   } else {
     if (fs.existsSync(rendererEntryPath)) {
       logInfo('loadFile', rendererEntryPath)
@@ -233,7 +236,9 @@ process.on('unhandledRejection', (reason) => {
 app.whenReady().then(async () => {
   logInfo('whenReady')
   // 初始化 SQLite 数据库（sql.js WASM 模块需异步加载）
-  await db.init(path.join(app.getPath('userData'), 'aitools.db'))
+  const userDataRoot = app.getPath('userData')
+  const { dbPath } = storagePaths.resolveStoragePaths(userDataRoot)
+  await db.init(dbPath)
   logInfo('db initialized')
   registerIpcHandlers()
   logInfo('ipc handlers registered')
@@ -300,6 +305,58 @@ function registerIpcHandlers() {
   ipcMain.on('db:removeItem', (event, key) => {
     try { event.returnValue = db.removeItem(key) }
     catch (e) { event.returnValue = false }
+  })
+
+  ipcMain.handle('db:export', () => Buffer.from(db.exportDatabase()))
+
+  ipcMain.handle('db:setEncryptionPassword', (_event, password) => {
+    return db.setEncryptionPassword(String(password || ''))
+  })
+
+  ipcMain.handle('db:clearEncryptionPassword', () => {
+    return db.clearEncryptionPassword()
+  })
+
+  ipcMain.handle('db:getEncryptionState', () => {
+    return db.getEncryptionState()
+  })
+
+  ipcMain.on('db:rebindStorageRoot', (event, rootPath) => {
+    try {
+      const userDataRoot = app.getPath('userData')
+      const defaultRoot = storagePaths.getDefaultDataStorageRoot(userDataRoot)
+      const requestedRoot = String(rootPath || '').trim()
+      const nextRoot = requestedRoot && path.isAbsolute(requestedRoot)
+        ? path.resolve(requestedRoot)
+        : defaultRoot
+      const nextDbPath = path.join(nextRoot, 'aitools.db')
+
+      if (nextRoot === defaultRoot) {
+        storagePaths.removeStorageState(userDataRoot)
+      } else {
+        storagePaths.writeStorageState(userDataRoot, nextRoot)
+      }
+
+      event.returnValue = db.rebindDatabasePath(nextDbPath)
+    } catch (error) {
+      logError('db:rebindStorageRoot failed', error?.stack || error?.message || String(error || ''))
+      event.returnValue = false
+    }
+  })
+
+  ipcMain.handle('db:import', (_event, payload) => {
+    const source = Buffer.isBuffer(payload)
+      ? payload
+      : payload?.type === 'Buffer' && Array.isArray(payload.data)
+        ? Buffer.from(payload.data)
+        : Buffer.from(payload || [])
+    const result = db.importDatabase(source)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.webContents.send('config:changed', { eventType: 'db:import', detail: null })
+      } catch {}
+    }
+    return result
   })
 
   ipcMain.on('user:getCurrentId', (event) => {

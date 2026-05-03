@@ -1,4 +1,5 @@
 <template>
+  <!-- MCP 参数表单：根据工具参数描述动态生成输入控件。 -->
   <div :style="{ maxHeight, overflowY: 'auto', padding }">
     <n-form :model="formData" label-placement="left" label-align="left" :label-width="labelWidth">
       <n-form-item

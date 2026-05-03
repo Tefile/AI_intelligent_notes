@@ -1,4 +1,5 @@
 <template>
+  <!-- Markdown 编辑器渲染器：承接编辑器实例与外部事件转发。 -->
   <MdEditor
     ref="editorRef"
     :model-value="modelValue"

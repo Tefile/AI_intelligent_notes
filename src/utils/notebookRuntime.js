@@ -1,3 +1,4 @@
+// Notebook 运行时：负责执行、流式输出和前后端桥接。
 ﻿function getNotebookRuntimeApi() {
   return globalThis?.notebookRuntime
 }
@@ -11,10 +12,12 @@ function rejectNotInjected(methodName) {
 function callNotebookRuntime(methodName, ...args) {
   const api = getNotebookRuntimeApi()
   const fn = api?.[methodName]
+  // 没有注入 runtime 时，直接返回一个统一的拒绝 Promise，调用方就不用区分同步/异步了。
   if (typeof fn !== 'function') return rejectNotInjected(methodName)
 
   try {
     const result = fn.apply(api, args)
+    // preload 的方法有些是同步值，有些是 Promise，这里统一包装成 Promise 方便上层 await。
     if (result && typeof result.then === 'function') return result
     return Promise.resolve(result)
   } catch (err) {

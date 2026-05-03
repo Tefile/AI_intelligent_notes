@@ -1,3 +1,4 @@
+// 定时任务执行器：调度任务列表、构造上下文并触发实际执行。
 import {
   getAgents,
   getProviders,
@@ -15,7 +16,12 @@ import { buildSkillFileIndexLines, getSkillDescription, isDirectorySkill } from 
 import { extractAssistantTextFromPayload } from '@/utils/chatAssistantResponse'
 import { stringifyToolResultForModel } from '@/utils/toolResultForModel'
 import { createDirectory, exists, writeFile } from '@/utils/fileOperations'
-import { getOrCreateMCPClient, releaseMCPClient, closePooledMCPClient } from '@/utils/mcpClient'
+import {
+  getOrCreateMCPClient,
+  releaseMCPClient,
+  closePooledMCPClient,
+  prepareMcpServerForBridge
+} from '@/utils/mcpClient'
 
 const SESSION_ROOT = 'session'
 const TIMED_TASK_ROOT = `${SESSION_ROOT}/Timed Task`
@@ -198,6 +204,7 @@ function buildProviderToolDefinition(inputSchemaRaw) {
     }
   }
 
+  // 有些 MCP 工具的 inputSchema 顶层不是 object，这里包一层 input 兼容旧定义。
   return {
     parameters: {
       type: 'object',
@@ -241,19 +248,25 @@ function filterAllowedMcpTools(server, list) {
   return (Array.isArray(list) ? list : []).filter((t) => enabledNames.has(String(t?.name || '').trim()))
 }
 
+function prepareServerForMcpBridge(server) {
+  // 定时任务里的 MCP 配置会混入响应式字段，这里先压平再交给桥接层。
+  return prepareMcpServerForBridge(server)
+}
+
 async function listMcpToolsForServer(server, options = {}) {
   const timeoutMs = Number(server?.timeout) || 10000
   let client = null
   let pooled = false
 
   try {
-    ;({ client, pooled } = getOrCreateMCPClient(server))
+    const bridgeServer = prepareServerForMcpBridge(server)
+    ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
     if (!client?.listTools) {
       throw new Error('MCP client not available（createMCPClient 未注入）')
     }
 
     const list = await withTimeout(client.listTools(), timeoutMs, `获取 MCP 工具列表：${server.name || server._id}`)
-    releaseMCPClient(server, client)
+    releaseMCPClient(bridgeServer, client)
     client = null
 
     const tools = Array.isArray(list) ? list : Array.isArray(list?.tools) ? list.tools : []
@@ -478,6 +491,7 @@ function buildRequestMessages({ systemPrompt, apiMessages, compatToolCallIdAsFc 
     const cloned = { ...m }
 
     if (compatToolCallIdAsFc) {
+      // 某些旧模型/旧服务还认 fc_ 风格的 tool_call id，所以这里只在兼容模式下转换。
       if (cloned.role === 'assistant' && Array.isArray(cloned.tool_calls)) {
         cloned.tool_calls = cloned.tool_calls.map((tc) => {
           if (!tc || typeof tc !== 'object') return tc
@@ -544,7 +558,9 @@ async function executeMcpToolCall({ toolCall, mapping, argsObj }) {
   let client = null
   let pooled = false
   try {
-    ;({ client, pooled } = getOrCreateMCPClient(server))
+    // 执行和列表查询共用同一份桥接后的 serverConfig，保证缓存命中和释放逻辑一致。
+    const bridgeServer = prepareMcpServerForBridge(server)
+    ;({ client, pooled } = getOrCreateMCPClient(bridgeServer))
     if (!client?.callTool) throw new Error('MCP client not available（createMCPClient 未注入）')
 
     const callTimeoutMs = Number(server?.timeout) || 60000
@@ -554,7 +570,7 @@ async function executeMcpToolCall({ toolCall, mapping, argsObj }) {
       callTimeoutMs,
       `调用工具：${mapping.serverName} / ${mapping.toolName}`
     )
-    releaseMCPClient(server, client)
+    releaseMCPClient(bridgeServer, client)
     client = null
 
     const resultText = stringifyToolResultForModel(result)

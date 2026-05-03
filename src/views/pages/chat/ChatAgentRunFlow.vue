@@ -1,4 +1,5 @@
 <template>
+  <!-- Agent 运行流：把任务、步骤、状态和时间线串成可读轨迹。 -->
   <div v-if="visible" :class="['agent-run-flow', { 'is-dark': theme === 'dark' }]">
     <div v-if="overviewChips.length" class="agent-run-flow__chips">
       <span

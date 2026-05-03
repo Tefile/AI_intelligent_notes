@@ -1,3 +1,4 @@
+// Python LSP 桥接：在预加载层启动和管理语言服务进程。
 const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');

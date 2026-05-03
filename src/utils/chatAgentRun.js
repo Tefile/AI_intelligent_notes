@@ -1,3 +1,4 @@
+// 聊天 Agent 运行解析：把 Agent 执行轨迹整理成可展示的步骤结构。
 import { isAgentRunToolResult } from '@/utils/chatToolDisplay'
 
 function safeJsonParse(text, fallback = null) {

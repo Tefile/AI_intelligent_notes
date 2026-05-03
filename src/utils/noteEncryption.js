@@ -1,3 +1,4 @@
+// 笔记加密工具：处理笔记内容的加密、解密和密钥派生。
 const SUPPORTED_PROTECTED_NOTE_EXTENSIONS = ['.md', '.ipynb']
 
 const DEFAULT_NOTE_SECURITY_CONFIG = Object.freeze({

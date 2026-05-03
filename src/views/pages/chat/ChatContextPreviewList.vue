@@ -1,4 +1,5 @@
 <template>
+  <!-- 上下文预览列表：让用户快速扫一眼即将送入模型的内容。 -->
   <div :class="['chat-context-preview', { 'is-dark': theme === 'dark' }]">
     <div class="chat-context-preview__header">
       <div class="chat-context-preview__title">{{ title }}</div>
@@ -74,4 +75,3 @@ function entryKey(entry, index, prefix = '') {
   return parts.filter(Boolean).join('-')
 }
 </script>
-

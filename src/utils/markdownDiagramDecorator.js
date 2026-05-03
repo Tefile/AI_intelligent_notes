@@ -1,3 +1,4 @@
+// Markdown 图表装饰器：给代码块、流程图和数学块加上预览能力。
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { ensureMarkdownPreviewRuntime } from '@/utils/mdEditorRuntime'
 import {

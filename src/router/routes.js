@@ -4,6 +4,7 @@
     CloudSatelliteConfig
 } from '@vicons/carbon'
 
+// 路由清单：这里定义侧边栏菜单和各业务页面的映射关系。
 import {
     ChatMultiple24Filled,
     NotepadEdit16Regular,

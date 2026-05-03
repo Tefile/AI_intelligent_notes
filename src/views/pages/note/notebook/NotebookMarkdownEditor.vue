@@ -1,4 +1,5 @@
 <template>
+  <!-- Notebook Markdown 编辑器：给单元内容提供更轻量的编辑壳。 -->
   <div ref="rootRef" :class="['notebook-markdown-editor', { 'is-dark': theme === 'dark' }]">
     <LazyMarkdownEditor
       ref="editorRef"

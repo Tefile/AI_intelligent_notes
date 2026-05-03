@@ -1,4 +1,5 @@
 <template>
+  <!-- 上下文窗口预览：汇总当前会话窗口的内容、占用和裁剪结果。 -->
   <ChatContextBudget
     :budget-status="budgetStatus"
     :budget-summary-text="budgetSummaryText"

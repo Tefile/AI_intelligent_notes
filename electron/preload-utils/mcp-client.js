@@ -1,3 +1,4 @@
+// MCP 客户端预加载实现：在 Electron 里管理 MCP 连接和消息转发。
 const { spawn } = require('child_process');
 
 const DEFAULT_PROTOCOL_VERSIONS = [
@@ -192,6 +193,7 @@ function createEventStreamAccumulator(onEvent) {
 }
 
 async function readJsonRpcEventStreamResponse(response, request, options = {}) {
+  // 先按事件流解析；如果运行环境把它降级成普通文本，再回退到 JSON-RPC 文本提取。
   const reader = createReadableStreamReader(response);
   if (!reader) {
     const fallbackText = await readResponseText(response);
@@ -205,6 +207,7 @@ async function readJsonRpcEventStreamResponse(response, request, options = {}) {
   const rawChunks = [];
 
   return new Promise((resolve, reject) => {
+    // 事件流里的数据可能分片到达，先攒起来再统一判断成功/失败，避免误判半截 JSON。
     let settled = false;
     const finishResolve = (value) => {
       if (settled) return;

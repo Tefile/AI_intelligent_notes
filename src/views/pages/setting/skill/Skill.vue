@@ -1,4 +1,5 @@
 <template>
+  <!-- 技能设置页：维护本地技能、目录和启用状态。 -->
   <n-flex
     vertical
     align="center"
@@ -251,6 +252,8 @@
             v-model:value="formData.mcp"
             multiple
             :options="mcpOptions"
+            :render-label="renderMcpOptionLabel"
+            :menu-props="mcpSelectMenuProps"
             placeholder="选择技能依赖的 MCP 服务"
             clearable
             filterable
@@ -288,7 +291,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, h } from 'vue'
 import {
   NAlert,
   NButton,
@@ -372,10 +375,34 @@ const sortedSkills = computed(() => {
 const mcpOptions = computed(() => {
   return (mcpServers.value || []).map((server) => ({
     label: server.name || server._id,
+    name: server.name || server._id,
+    transportType: server.transportType || server.type || '未知',
     value: server._id,
     disabled: !!server.disabled
   }))
 })
+
+const mcpSelectMenuProps = {
+  class: 'skill-mcp-select-menu',
+  style: {
+    '--n-option-height': '20px',
+    '--n-option-padding': '0 8px',
+    '--n-option-padding-left': '8px',
+    '--n-option-padding-right': '8px'
+  }
+}
+
+function renderMcpOptionLabel(option) {
+  const name = String(option?.name || option?.label || option?._id || '').trim()
+  const id = String(option?._id || option?.value || '').trim()
+  const type = String(option?.transportType || option?.type || '未知').trim() || '未知'
+
+  return h('div', { class: 'skill-mcp-select-option' }, [
+    h('span', { class: 'skill-mcp-select-option__name' }, name || '未命名'),
+    h('span', { class: 'skill-mcp-select-option__id' }, id || '未知'),
+    h('span', { class: 'skill-mcp-select-option__type' }, `类型：${type}`)
+  ])
+}
 
 const currentSkill = computed(() => {
   const id = String(currentSkillId.value || '').trim()
@@ -459,10 +486,11 @@ function normalizeImportPath(value) {
 
 function openPathDialog(options) {
   const api = getElectronApi()
-  if (!api?.showOpenDialog) {
+  const showOpenDialog = api?.showOpenDialog || api?.dialog?.showOpenDialog
+  if (!showOpenDialog) {
     throw new Error('当前环境不支持打开文件选择器')
   }
-  return normalizeImportPath(resolveOpenDialogPath(api.showOpenDialog(options)))
+  return normalizeImportPath(resolveOpenDialogPath(showOpenDialog(options)))
 }
 
 function errorText(err) {
@@ -793,5 +821,55 @@ function confirmDelete(skill) {
 
 .settings-page.is-dark .settings-card__meta {
   color: rgba(203, 213, 225, 0.88);
+}
+
+:deep(.skill-mcp-select-menu .n-base-select-option) {
+  min-height: 20px;
+  height: 20px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:deep(.skill-mcp-select-menu .n-base-select-option__content) {
+  min-height: 20px;
+  line-height: 20px;
+}
+
+:deep(.skill-mcp-select-menu .skill-mcp-select-option) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+
+:deep(.skill-mcp-select-menu .skill-mcp-select-option__name) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+:deep(.skill-mcp-select-menu .skill-mcp-select-option__id) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(71, 85, 105, 0.86);
+}
+
+:deep(.skill-mcp-select-menu .skill-mcp-select-option__type) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(100, 116, 139, 0.9);
+}
+
+.settings-page.is-dark :deep(.skill-mcp-select-menu .skill-mcp-select-option__id) {
+  color: rgba(203, 213, 225, 0.9);
+}
+
+.settings-page.is-dark :deep(.skill-mcp-select-menu .skill-mcp-select-option__type) {
+  color: rgba(226, 232, 240, 0.88);
 }
 </style>

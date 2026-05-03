@@ -1,3 +1,4 @@
+// 笔记打开桥接：负责把文件打开请求交给 Electron 或本地运行时。
 let pendingNotePath = ''
 const listeners = new Set()
 

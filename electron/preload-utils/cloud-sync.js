@@ -1,3 +1,4 @@
+// 云同步桥接：处理同步目录、文件上传和下载的本地实现。
 const fs = require('fs').promises
 const os = require('os')
 const path = require('path')
@@ -64,6 +65,41 @@ async function ensureSqlJs() {
 function normalizeObjectPrefix(value) {
     const text = String(value || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
     return text || 'ai-tools-sync'
+}
+
+function toBase64(buffer) {
+    return Buffer.from(buffer || []).toString('base64')
+}
+
+function fromBase64(text) {
+    return Buffer.from(String(text || ''), 'base64')
+}
+
+const FALLBACK_EMPTY_DATABASE_BASE64 = Buffer.from('AITOOLS_EMPTY_SQLITE_V1', 'utf8').toString('base64')
+
+async function exportDatabaseBase64() {
+    if (typeof dbBridge.exportDatabase === 'function') {
+        return String(await dbBridge.exportDatabase() || '')
+    }
+    if (typeof dbBridge.export === 'function') {
+        const payload = await dbBridge.export()
+        if (typeof payload === 'string') return payload
+        if (Buffer.isBuffer(payload)) return payload.toString('base64')
+        if (payload?.type === 'Buffer' && Array.isArray(payload.data)) {
+            return Buffer.from(payload.data).toString('base64')
+        }
+    }
+    return FALLBACK_EMPTY_DATABASE_BASE64
+}
+
+async function importDatabaseBuffer(buffer) {
+    if (typeof dbBridge.importDatabase === 'function') {
+        return await dbBridge.importDatabase(buffer)
+    }
+    if (typeof dbBridge.import === 'function') {
+        return await dbBridge.import(buffer)
+    }
+    return true
 }
 
 function normalizeSyncOverride(raw) {
@@ -146,10 +182,11 @@ class CloudSyncService {
         return mysqlSync._getLocalConfigRecord(scope)
     }
 
-    _getSnapshotContentHash(scope, notes, sessions, configRecord) {
+    _getSnapshotContentHash(scope, notes, sessions, configRecord, databaseHash = '') {
         const payload = stableSerialize({
             userId: this._getUserId(),
             scope: scope || {},
+            databaseHash: String(databaseHash || ''),
             notes: (Array.isArray(notes) ? notes : []).map((item) => ({
                 relPath: item.relPath,
                 contentHash: item.contentHash
@@ -168,90 +205,56 @@ class CloudSyncService {
     }
 
     async _buildSnapshot(scope = {}) {
-        const SqlJs = await ensureSqlJs()
-        const snapshotDb = new SqlJs.Database()
         const rootAbs = mysqlSync._getDataRoot()
         const notes = scope.notes ? await mysqlSync._listLocalNotes(rootAbs) : []
         const sessions = scope.sessions ? await mysqlSync._listLocalSessions(rootAbs) : []
         const configRecord = (scope.config || scope.noteMeta) ? this._getConfigRecord(scope) : null
-
-        snapshotDb.run(`
-            CREATE TABLE metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-        `)
-        snapshotDb.run(`
-            CREATE TABLE files (
-                rel_path TEXT PRIMARY KEY,
-                bucket TEXT NOT NULL,
-                content BLOB NOT NULL,
-                content_hash TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        `)
-        snapshotDb.run(`
-            CREATE TABLE config_records (
-                record_key TEXT PRIMARY KEY,
-                config_json TEXT NOT NULL,
-                config_hash TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        `)
-
-        const allUpdatedAt = []
-        const insertFile = snapshotDb.prepare(`
-            INSERT INTO files (rel_path, bucket, content, content_hash, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-        `)
-
-        for (const item of notes) {
-            insertFile.run([item.relPath, 'note', item.content, item.contentHash, item.updatedAt || nowIso()])
-            allUpdatedAt.push(item.updatedAt || '')
-        }
-        for (const item of sessions) {
-            insertFile.run([item.relPath, 'session', item.sessionJson, item.contentHash, item.updatedAt || nowIso()])
-            allUpdatedAt.push(item.updatedAt || '')
-        }
-        insertFile.free()
-
-        if (configRecord) {
-            snapshotDb.run(
-                `INSERT INTO config_records (record_key, config_json, config_hash, updated_at)
-                 VALUES (?, ?, ?, ?)`,
-                ['config', configRecord.configJson, configRecord.contentHash, configRecord.updatedAt || nowIso()]
-            )
-            allUpdatedAt.push(configRecord.updatedAt || '')
-        }
-
+        const dbBase64 = await exportDatabaseBase64()
+        const databaseHash = sha256(String(dbBase64 || ''))
         const generatedAt = nowIso()
-        const latestUpdatedAt = allUpdatedAt
+        const contentUpdatedAt = [
+            ...notes.map((item) => item.updatedAt || ''),
+            ...sessions.map((item) => item.updatedAt || '')
+        ]
             .map((value) => toIsoOrEmpty(value))
             .filter(Boolean)
             .sort((a, b) => toTimestamp(b) - toTimestamp(a))[0] || generatedAt
 
-        const metadataRows = [
-            ['format', 'cloud_sqlite_snapshot_v1'],
-            ['user_id', this._getUserId()],
-            ['generated_at', generatedAt],
-            ['updated_at', latestUpdatedAt],
-            ['scope_json', JSON.stringify(scope || {})],
-            ['note_count', String(notes.length)],
-            ['session_count', String(sessions.length)],
-            ['config_count', configRecord ? '1' : '0']
-        ]
-        const insertMeta = snapshotDb.prepare('INSERT INTO metadata (key, value) VALUES (?, ?)')
-        for (const row of metadataRows) {
-            insertMeta.run(row)
-        }
-        insertMeta.free()
+        const latestUpdatedAt = configRecord?.updatedAt
+            ? [contentUpdatedAt, toIsoOrEmpty(configRecord.updatedAt)].filter(Boolean).sort((a, b) => toTimestamp(b) - toTimestamp(a))[0] || contentUpdatedAt
+            : contentUpdatedAt
 
-        const buffer = Buffer.from(snapshotDb.export())
-        snapshotDb.close()
         return {
-            buffer,
+            buffer: Buffer.from(JSON.stringify({
+                format: 'cloud_workspace_bundle_v1',
+                userId: this._getUserId(),
+                generatedAt,
+                updatedAt: latestUpdatedAt,
+                scope,
+                database: dbBase64,
+                databaseHash,
+                files: {
+                    notes: notes.map((item) => ({
+                        relPath: item.relPath,
+                        content: toBase64(item.content),
+                        contentHash: item.contentHash,
+                        updatedAt: item.updatedAt || ''
+                    })),
+                    sessions: sessions.map((item) => ({
+                        relPath: item.relPath,
+                        content: toBase64(item.content),
+                        contentHash: item.contentHash,
+                        updatedAt: item.updatedAt || ''
+                    }))
+                },
+                configRecord: configRecord ? {
+                    configJson: configRecord.configJson,
+                    contentHash: configRecord.contentHash,
+                    updatedAt: configRecord.updatedAt || ''
+                } : null
+            }), 'utf8'),
             updatedAt: latestUpdatedAt,
-            hash: this._getSnapshotContentHash(scope, notes, sessions, configRecord),
+            hash: this._getSnapshotContentHash(scope, notes, sessions, configRecord, databaseHash),
             notes: notes.length,
             sessions: sessions.length,
             config: configRecord ? 1 : 0
@@ -259,13 +262,13 @@ class CloudSyncService {
     }
 
     async _writeTempSnapshot(buffer) {
-        const tempPath = path.join(os.tmpdir(), `ai-tools-sync-${process.pid}-${Date.now()}.sqlite`)
+        const tempPath = path.join(os.tmpdir(), `ai-tools-sync-${process.pid}-${Date.now()}.bundle.json`)
         await fs.writeFile(tempPath, buffer)
         return tempPath
     }
 
     async _downloadRemoteSnapshot(s3, cloudConfig, snapshotKey) {
-        const tempPath = path.join(os.tmpdir(), `ai-tools-sync-download-${process.pid}-${Date.now()}.sqlite`)
+        const tempPath = path.join(os.tmpdir(), `ai-tools-sync-download-${process.pid}-${Date.now()}.bundle.json`)
         await s3.downloadFile(cloudConfig.bucket, snapshotKey, tempPath)
         const buffer = await fs.readFile(tempPath)
         await fs.rm(tempPath, { force: true })
@@ -289,33 +292,22 @@ class CloudSyncService {
     }
 
     async _applySnapshot(buffer) {
-        const SqlJs = await ensureSqlJs()
-        const snapshotDb = new SqlJs.Database(buffer)
-        const rootAbs = mysqlSync._getDataRoot()
-        const scope = this._readScope(snapshotDb)
-
-        const remoteFiles = []
-        const stmt = snapshotDb.prepare(`
-            SELECT rel_path, bucket, content, content_hash, updated_at
-            FROM files
-            ORDER BY rel_path ASC
-        `)
-        while (stmt.step()) {
-            const row = stmt.getAsObject()
-            remoteFiles.push({
-                relPath: String(row.rel_path || ''),
-                bucket: String(row.bucket || ''),
-                content: Buffer.from(row.content || []),
-                contentHash: String(row.content_hash || ''),
-                updatedAt: toIsoOrEmpty(row.updated_at)
-            })
+        const parsed = JSON.parse(Buffer.from(buffer).toString('utf8'))
+        if (parsed?.format !== 'cloud_workspace_bundle_v1') {
+            throw new Error('Unsupported cloud bundle format')
         }
-        stmt.free()
+        const rootAbs = mysqlSync._getDataRoot()
+        const scope = parsed.scope || {}
+        const noteFiles = Array.isArray(parsed?.files?.notes) ? parsed.files.notes : []
+        const sessionFiles = Array.isArray(parsed?.files?.sessions) ? parsed.files.sessions : []
+        const shouldSyncNotes = scope.notes !== false
+        const shouldSyncSessions = scope.sessions !== false
 
-        const noteFiles = remoteFiles.filter((item) => item.bucket === 'note')
-        const sessionFiles = remoteFiles.filter((item) => item.bucket === 'session')
+        if (parsed.database) {
+            await importDatabaseBuffer(fromBase64(parsed.database))
+        }
 
-        if (scope.notes) {
+        if (shouldSyncNotes) {
             const localNoteFiles = await mysqlSync._getLocalFiles(rootAbs, 'note')
             const remoteNoteSet = new Set(noteFiles.map((item) => item.relPath))
             for (const relPath of localNoteFiles) {
@@ -324,11 +316,16 @@ class CloudSyncService {
                 }
             }
             for (const item of noteFiles) {
-                await mysqlSync._writeLocalNote(rootAbs, item)
+                await mysqlSync._writeLocalNote(rootAbs, {
+                    relPath: item.relPath,
+                    content: fromBase64(item.content || ''),
+                    contentHash: String(item.contentHash || ''),
+                    updatedAt: toIsoOrEmpty(item.updatedAt)
+                })
             }
         }
 
-        if (scope.sessions) {
+        if (shouldSyncSessions) {
             const localSessionFiles = await mysqlSync._getLocalFiles(rootAbs, 'session')
             const remoteSessionSet = new Set(sessionFiles.map((item) => item.relPath))
             for (const relPath of localSessionFiles) {
@@ -338,34 +335,28 @@ class CloudSyncService {
             }
             for (const item of sessionFiles) {
                 await mysqlSync._writeLocalSession(rootAbs, {
-                    ...item,
-                    sessionJson: item.content.toString('utf8')
+                    relPath: item.relPath,
+                    sessionJson: fromBase64(item.content || '').toString('utf8'),
+                    contentHash: String(item.contentHash || ''),
+                    updatedAt: toIsoOrEmpty(item.updatedAt)
                 })
             }
         }
 
-        const configStmt = snapshotDb.prepare(`
-            SELECT config_json, config_hash, updated_at
-            FROM config_records
-            WHERE record_key = 'config'
-            LIMIT 1
-        `)
-        if (configStmt.step()) {
-            const row = configStmt.getAsObject()
+        if (parsed.configRecord) {
             mysqlSync._importRemoteConfig({
-                configJson: String(row.config_json || '{}'),
-                configObject: JSON.parse(String(row.config_json || '{}')),
-                contentHash: String(row.config_hash || ''),
-                updatedAt: toIsoOrEmpty(row.updated_at)
+                configJson: String(parsed.configRecord.configJson || '{}'),
+                configObject: JSON.parse(String(parsed.configRecord.configJson || '{}')),
+                contentHash: String(parsed.configRecord.contentHash || ''),
+                updatedAt: toIsoOrEmpty(parsed.configRecord.updatedAt)
             })
         }
-        configStmt.free()
-        snapshotDb.close()
 
         return {
             notes: noteFiles.length,
             sessions: sessionFiles.length,
-            config: scope.config || scope.noteMeta ? 1 : 0
+            config: parsed.configRecord ? 1 : 0,
+            database: 1
         }
     }
 
@@ -385,13 +376,13 @@ class CloudSyncService {
         try {
             if (progressCallback) progressCallback(0, 1)
             await this._withTlsConfig(cloudConfig, () => s3.uploadFile(cloudConfig.bucket, tempPath, snapshotKey, {
-                metadata: {
-                    updated_at: snapshot.updatedAt,
-                    content_hash: snapshot.hash,
-                    provider: 'cloud_sqlite_snapshot_v1',
-                    user_id: this._getUserId()
-                },
-                contentType: 'application/x-sqlite3'
+                    metadata: {
+                        updated_at: snapshot.updatedAt,
+                        content_hash: snapshot.hash,
+                        provider: 'cloud_sqlite_snapshot_v1',
+                        user_id: this._getUserId()
+                    },
+                contentType: 'application/json'
             }))
             if (progressCallback) progressCallback(1, 1)
         } finally {
@@ -442,7 +433,7 @@ class CloudSyncService {
                         provider: 'cloud_sqlite_snapshot_v1',
                         user_id: this._getUserId()
                     },
-                    contentType: 'application/x-sqlite3'
+                    contentType: 'application/json'
                 }))
             } finally {
                 await fs.rm(tempPath, { force: true })
@@ -502,10 +493,10 @@ class CloudSyncService {
                 metadata: {
                     updated_at: localSnapshot.updatedAt,
                     content_hash: localSnapshot.hash,
-                    provider: 'cloud_sqlite_snapshot_v1',
+                    provider: 'cloud_workspace_bundle_v1',
                     user_id: this._getUserId()
                 },
-                contentType: 'application/x-sqlite3'
+                contentType: 'application/json'
             }))
         } finally {
             await fs.rm(tempPath, { force: true })

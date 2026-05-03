@@ -179,6 +179,28 @@ module.exports = {
     return false
   },
 
+  async exportDatabase() {
+    const ipcRenderer = getElectronIpcRenderer()
+    if (ipcRenderer?.invoke) {
+      const payload = await ipcRenderer.invoke('db:export')
+      if (typeof payload === 'string') return payload
+      if (Buffer.isBuffer(payload)) return payload.toString('base64')
+      if (payload?.type === 'Buffer' && Array.isArray(payload.data)) {
+        return Buffer.from(payload.data).toString('base64')
+      }
+      return ''
+    }
+    return ''
+  },
+
+  async importDatabase(payload) {
+    const ipcRenderer = getElectronIpcRenderer()
+    if (ipcRenderer?.invoke) {
+      return await ipcRenderer.invoke('db:import', payload)
+    }
+    return false
+  },
+
   getCurrentUserId() {
     const ipcRenderer = getElectronIpcRenderer()
     if (ipcRenderer?.sendSync) {
@@ -311,5 +333,19 @@ module.exports = {
     }
 
     return getUtoolsUserDataPath()
+  },
+
+  rebindStorageRoot(rootPath) {
+    const ipcRenderer = getElectronIpcRenderer()
+    if (ipcRenderer?.sendSync) {
+      try {
+        const result = ipcRenderer.sendSync('db:rebindStorageRoot', rootPath)
+        return result !== false && result !== null && result !== undefined && String(result || '').trim() !== ''
+      } catch {
+        // fall through
+      }
+    }
+
+    return !!String(rootPath || '').trim()
   }
 }

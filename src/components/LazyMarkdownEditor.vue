@@ -1,4 +1,5 @@
 <template>
+  <!-- 懒加载 Markdown 编辑器：等运行时准备好后再挂载重型编辑器。 -->
   <MarkdownEditorRenderer
     ref="rendererRef"
     v-bind="attrs"

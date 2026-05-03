@@ -26,13 +26,11 @@ const BUILTIN_SESSIONS_SKILL_ID = 'builtin_skill_sessions'
 const BUILTIN_AGENT_ORCHESTRATION_SKILL_ID = 'builtin_skill_agent_orchestration'
 const BUILTIN_PROMPT_ID = 'builtin_prompt_notes'
 const BUILTIN_AGENT_ID = 'builtin_agent_notes'
-const BUILTIN_PROVIDER_ID = 'builtin_provider_utools_ai'
 
 const BUILTIN_MCP_SERVER_IDS = [BUILTIN_MCP_SERVER_ID, BUILTIN_CONFIG_MCP_SERVER_ID, BUILTIN_SESSIONS_MCP_SERVER_ID, BUILTIN_AGENTS_MCP_SERVER_ID]
 const BUILTIN_SKILL_IDS = [BUILTIN_SKILL_ID, BUILTIN_CONFIG_SKILL_ID, BUILTIN_SESSIONS_SKILL_ID, BUILTIN_AGENT_ORCHESTRATION_SKILL_ID]
 const BUILTIN_PROMPT_IDS = [BUILTIN_PROMPT_ID]
 const BUILTIN_AGENT_IDS = [BUILTIN_AGENT_ID]
-const BUILTIN_PROVIDER_IDS = [BUILTIN_PROVIDER_ID]
 
 function buildBuiltinMcpServer() {
     return {
@@ -363,6 +361,7 @@ const DEFAULT_NOTE_CONFIG = Object.freeze({
     noteSecurity: DEFAULT_NOTE_SECURITY_CONFIG,
     notebookRuntime: DEFAULT_NOTEBOOK_RUNTIME_CONFIG
 })
+const storagePaths = require('../storage-paths.cjs')
 
 function getLocalNotebookRuntimeConfigFilePath() {
     const userDataRoot = getDefaultUserScopedDataRoot()
@@ -1678,12 +1677,7 @@ class GlobalConfig {
             config.agents = nextAgents
             changed = true
         }
-        const providers = config.providers || {}
-        if (Object.prototype.hasOwnProperty.call(providers, BUILTIN_PROVIDER_ID)) {
-            delete providers[BUILTIN_PROVIDER_ID]
-            changed = true
-        }
-        const nextProviders = reorderObjectWithFirstKeys(providers, [])
+        const nextProviders = reorderObjectWithFirstKeys(config.providers, [])
         if (!safeJsonEquals(nextProviders, config.providers)) {
             config.providers = nextProviders
             changed = true
@@ -3338,9 +3332,6 @@ class GlobalConfig {
     }
 
     addProvider(item) {
-        if (BUILTIN_PROVIDER_IDS.includes(item?._id)) {
-            throw new Error('内置 Provider 不可覆盖');
-        }
         const normalizedName = String(item?.name || '').trim();
         if (!normalizedName) {
             throw new Error('Provider 名称不能为空');
@@ -3356,7 +3347,6 @@ class GlobalConfig {
     }
 
     updateProvider(id, updatedFields) {
-        if (BUILTIN_PROVIDER_IDS.includes(id)) throw new Error('内置 Provider 不可修改');
         const config = this._getRaw();
         if (!config.providers[id]) throw new Error('Provider not found');
         const nextFields = { ...updatedFields };
@@ -3372,7 +3362,6 @@ class GlobalConfig {
     }
 
     deleteProvider(id) {
-        if (BUILTIN_PROVIDER_IDS.includes(id)) throw new Error('内置 Provider 不可删除');
         const config = this._getRaw();
         if (!config.providers[id]) throw new Error('Provider not found');
         delete config.providers[id];
@@ -3574,14 +3563,36 @@ class GlobalConfig {
     // ---------- dataStorageRoot ----------
     updateDataStorageRoot(rootPath) {
         const config = this._getRaw();
+        const previousRoot = normalizeExternalPathValue(config.dataStorageRoot)
         config.dataStorageRoot = rootPath;
+        const normalizedRoot = this._ensureWritableDataStorageRoot(config)
+        if (previousRoot && previousRoot !== normalizedRoot) {
+            storagePaths.copyDirectoryContents(previousRoot, normalizedRoot, {
+                excludeNames: ['aitools.db', 'aitools.db.pass']
+            })
+        }
+        const rebound = dbBridge.rebindStorageRoot(normalizedRoot)
+        if (!rebound) {
+            throw new Error('SQLite 数据目录重绑定失败')
+        }
         this._save(config);
         return config.dataStorageRoot;
     }
 
     resetDataStorageRoot() {
         const config = this._getRaw();
+        const previousRoot = normalizeExternalPathValue(config.dataStorageRoot)
         config.dataStorageRoot = getDefaultUserScopedDataRoot();
+        const normalizedRoot = this._ensureWritableDataStorageRoot(config)
+        if (previousRoot && previousRoot !== normalizedRoot) {
+            storagePaths.copyDirectoryContents(previousRoot, normalizedRoot, {
+                excludeNames: ['aitools.db', 'aitools.db.pass']
+            })
+        }
+        const rebound = dbBridge.rebindStorageRoot(normalizedRoot)
+        if (!rebound) {
+            throw new Error('SQLite 数据目录重绑定失败')
+        }
         this._save(config);
         return config.dataStorageRoot;
     }
@@ -3619,6 +3630,7 @@ class GlobalConfig {
 }
 
 module.exports = new GlobalConfig();
+
 
 
 

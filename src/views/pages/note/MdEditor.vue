@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 笔记 Markdown 编辑器：承接文件打开、编辑和保存。 -->
   <div v-if="!filePath" :class="['welcome-container', { 'is-dark': theme === 'dark' }]">
     <n-card class="welcome-card" :bordered="false">
       <n-icon size="48" :depth="3">

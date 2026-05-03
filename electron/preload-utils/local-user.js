@@ -1,3 +1,4 @@
+// 本地用户桥接：暴露当前用户信息和会话级身份数据。
 const dbBridge = require('./db-bridge')
 
 module.exports = {

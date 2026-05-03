@@ -1,4 +1,5 @@
 <template>
+  <!-- 内联 Agent 选择器：在输入框里快速切换预设智能体。 -->
   <div class="chat-inline-agent-picker">
     <div class="chat-inline-agent-picker__header">
       <span>智能体</span>
@@ -71,4 +72,3 @@ watch(
   { flush: 'post' }
 )
 </script>
-

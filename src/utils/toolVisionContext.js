@@ -1,3 +1,4 @@
+// 视觉上下文工具：整理图片输入、任务提示和上下文摘要。
 function normalizeText(value) {
   return String(value || '').trim()
 }

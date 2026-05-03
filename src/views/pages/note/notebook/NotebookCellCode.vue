@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- Notebook 代码单元：管理代码编辑、执行按钮和输出状态。 -->
   <section
     ref="rootRef"
     :data-cell-id="cell.id"

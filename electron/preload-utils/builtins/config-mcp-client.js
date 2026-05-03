@@ -1,3 +1,4 @@
+// 内置配置 MCP 客户端：把配置读写暴露成 MCP 风格接口。
 const crypto = require('crypto')
 
 const globalConfig = require('../global-config')

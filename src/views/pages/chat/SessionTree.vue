@@ -1,4 +1,5 @@
 <template>
+  <!-- 会话树：管理历史会话、自动保存和任务记录的目录结构。 -->
   <div :class="['session-tree', { 'is-dark': props.theme === 'dark' }]" @contextmenu.prevent="handleTreeContextMenu">
     <div class="session-tree__toolbar" @contextmenu.stop.prevent>
       <n-tooltip trigger="hover">
@@ -136,7 +137,7 @@ const selectedFolderKeys = ref([props.root])
 const newSessionName = ref('')
 
 const pendingPayload = ref(null)
-const AUTO_SAVED_ROOT = computed(() => `${props.root}/历史会话/自动保存`)
+const AUTO_SAVED_ROOT = computed(() => `${props.root}/历史会话`)
 
 const protectedTimedTaskDir = computed(() => `${props.root}/Timed Task`)
 function isProtectedPath(p) {

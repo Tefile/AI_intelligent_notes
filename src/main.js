@@ -1,3 +1,4 @@
+// 应用入口：初始化 Vue、全局配置监听和定时任务运行器。
 import { createApp } from 'vue'
 import App from '@/App.vue'
 import configListener from '@/utils/configListener'

@@ -1,4 +1,5 @@
 <template>
+  <!-- 提示词设置页：集中维护系统提示、模板和预设内容。 -->
   <n-flex
     vertical
     align="center"

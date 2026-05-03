@@ -1,4 +1,5 @@
 <template>
+  <!-- 小帮助提示气泡：给表单项或说明文字补一个悬浮解释。 -->
   <n-tooltip trigger="hover">
     <template #trigger>
       <span class="help-tip" aria-hidden="true">

@@ -1,4 +1,5 @@
-<template>
+﻿<template>
+  <!-- 聊天输入面板：负责输入框、内联命令和常用开关。 -->
   <n-card :class="['chat-composer-card', { 'is-dark': theme === 'dark' }]">
     <n-flex vertical :size="10">
       <input
@@ -28,6 +29,7 @@
           :active-index="inlineCommandActiveIndex"
           :mode="inlineCommandMode"
           :type="inlineCommandType"
+          :theme="theme"
           @apply="(item) => emit('apply-inline-command-suggestion', item)"
         />
 

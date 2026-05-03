@@ -1,3 +1,4 @@
+// 笔记图表配置：维护图表类型、默认设置和运行选项。
 ﻿export const DIAGRAM_KINDS = Object.freeze(['mermaid', 'echarts'])
 export const MAX_RECENT_DIAGRAM_TEMPLATES = 5
 

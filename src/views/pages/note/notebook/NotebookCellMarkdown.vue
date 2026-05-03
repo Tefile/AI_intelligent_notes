@@ -1,4 +1,5 @@
 <template>
+  <!-- Notebook Markdown 单元：编辑说明文字和富文本内容。 -->
   <section
     ref="rootRef"
     :data-cell-id="cell.id"

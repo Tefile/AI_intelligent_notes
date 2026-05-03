@@ -1,3 +1,4 @@
+// 笔记路径工具：处理相对路径、编码解码和安全裁剪。
 import { NOTE_EXTENSIONS } from './noteTypes.js'
 
 function normalizeWrappedLinkInput(insideRaw) {

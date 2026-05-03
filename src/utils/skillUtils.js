@@ -1,3 +1,4 @@
+// 技能工具：处理技能目录、元数据和执行入口。
 const SKILL_SCRIPT_MANIFEST_PATH = 'scripts/manifest.json'
 const RUNNABLE_SKILL_SCRIPT_EXTENSIONS = new Set(['.js', '.cjs', '.mjs', '.py', '.ps1', '.sh', '.bash'])
 

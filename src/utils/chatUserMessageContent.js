@@ -1,3 +1,4 @@
+// 用户消息内容整理：把文本、附件和内联命令拼成最终发送内容。
 const ATTACHMENT_BLOCK_HEADER = '【附件内容】'
 
 function isObjectLike(value) {

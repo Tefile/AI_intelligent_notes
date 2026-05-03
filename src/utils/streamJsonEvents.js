@@ -1,3 +1,4 @@
+// 流式 JSON 事件解析：把分块数据还原成连续事件流。
 function createAbortError(message = 'Aborted') {
   const err = new Error(message)
   err.name = 'AbortError'

@@ -1,3 +1,4 @@
+// Markdown 编辑器运行时：按需装配编辑器、预览和笔记扩展。
 import {
   buildDiagramContainerStyle,
   parseDiagramFenceInfo

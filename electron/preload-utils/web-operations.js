@@ -1,3 +1,4 @@
+// Web 操作桥接：封装 HTTP、HTTPS 和流式请求能力。
 const http = require('http')
 const https = require('https')
 const tls = require('tls')

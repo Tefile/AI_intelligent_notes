@@ -1,3 +1,4 @@
+// Agent 模型参数工具：统一整理上下文、推理强度和模型开关参数。
 export const AGENT_REASONING_EFFORT_OPTIONS = ['auto', 'low', 'medium', 'high']
 
 function normalizeOptionalNumber(value, options = {}) {

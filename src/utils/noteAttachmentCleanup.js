@@ -1,3 +1,4 @@
+// 笔记附件清理工具：在文件移动或删除后同步整理附件引用。
 import { deleteItem, exists, listDirectory, stat } from '@/utils/fileOperations'
 import { listNoteAssetsDirectories } from '@/utils/noteImageUpload'
 import {

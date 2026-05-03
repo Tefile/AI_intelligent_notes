@@ -1,3 +1,4 @@
+// 内置会话 MCP 客户端：把历史会话目录映射成可调用接口。
 const path = require('path')
 const fs = require('fs').promises
 
@@ -277,4 +278,3 @@ class BuiltinSessionsMcpClient {
 module.exports = function createBuiltinSessionsMcpClient(serverConfig) {
   return new BuiltinSessionsMcpClient(serverConfig)
 }
-

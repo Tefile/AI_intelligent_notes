@@ -1,4 +1,5 @@
 <template>
+  <!-- 工具消息区：负责展示可折叠的工具调用结果和相关媒体。 -->
   <div :class="['tool-message', 'chat-page', theme, { 'is-dark': theme === 'dark' }]">
     <div class="tool-message__toggle" @click="actions.toggleToolExpanded(msg)">
       <n-icon :component="msg.toolExpanded ? ChevronUpOutline : ChevronDownOutline" size="14" />

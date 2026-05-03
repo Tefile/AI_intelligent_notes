@@ -1,4 +1,5 @@
 <template>
+  <!-- 待发送附件区：预览尚未发出的图片和文件。 -->
   <div v-if="pendingAttachments.length" :class="['chat-page', theme]">
     <div :class="['chat-pending-preview', { 'is-dark': theme === 'dark' }]">
       <div class="chat-pending-preview__header">

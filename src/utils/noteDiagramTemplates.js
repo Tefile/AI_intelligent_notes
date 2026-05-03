@@ -1,5 +1,6 @@
-import { DIAGRAM_KINDS } from '@/utils/noteDiagramConfig'
-import { buildEchartsOptionSnippetFromSelection } from '@/utils/echartsDataTransform'
+// 笔记图表模板注册表：管理内置图表模板和可插入片段。
+import { DIAGRAM_KINDS } from './noteDiagramConfig'
+import { buildEchartsOptionSnippetFromSelection } from './echartsDataTransform'
 
 const EDITABLE_MARKER_RE = /\[\[(.*?)\]\]/g
 

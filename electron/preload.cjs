@@ -17,6 +17,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const globalConfig = require('./preload-utils/global-config')
 const fileOperations = require('./preload-utils/file-operations')
 const createMCPClient = require('./preload-utils/mcp-client')
+const { createMcpClientHandleManager } = require('./preload-utils/mcp-bridge')
 const localUser = require('./preload-utils/local-user')
 const notebookRuntime = require('./preload-utils/notebook-runtime')
 const webOperations = require('./preload-utils/web-operations')
@@ -45,6 +46,7 @@ function createBridgeApi(source) {
 const globalConfigApi = createBridgeApi(globalConfig)
 const fileOperationsApi = createBridgeApi(fileOperations)
 const notebookRuntimeApi = createBridgeApi(notebookRuntime)
+const mcpBridgeManager = createMcpClientHandleManager((serverConfig) => createMCPClient(serverConfig))
 
 // 确保内置 MCP Server / Skill / Prompt 等预设数据存在
 try {
@@ -75,13 +77,19 @@ ipcRenderer.on('agent:toolApprovalResponse', (_event, data) => {
   window.dispatchEvent(new CustomEvent('builtin-agents-tool-approval-response', { detail: data }))
 })
 
+window.addEventListener('beforeunload', () => {
+  void mcpBridgeManager.closeAll()
+})
+
 // ---------- 通过 contextBridge 暴露服务给渲染进程 ----------
 // 这些全局对象与 uTools 插件环境中的 window.globalConfig、window.fileOperations 等完全一致，
 // 业务代码无需任何修改即可使用。
 
 contextBridge.exposeInMainWorld('globalConfig', globalConfigApi)
 contextBridge.exposeInMainWorld('fileOperations', fileOperationsApi)
-contextBridge.exposeInMainWorld('createMCPClient', createMCPClient)
+contextBridge.exposeInMainWorld('createMCPClient', mcpBridgeManager.createHandle)
+contextBridge.exposeInMainWorld('mcpClientInvoke', mcpBridgeManager.invoke)
+contextBridge.exposeInMainWorld('closeMCPClient', mcpBridgeManager.close)
 contextBridge.exposeInMainWorld('localUser', localUser)
 contextBridge.exposeInMainWorld('notebookRuntime', notebookRuntimeApi)
 contextBridge.exposeInMainWorld('webOperations', webOperations)
@@ -114,7 +122,12 @@ const api = {
   db: {
     getItem: (key) => ipcRenderer.sendSync('db:getItem', key),
     setItem: (key, value) => ipcRenderer.sendSync('db:setItem', key, value),
-    removeItem: (key) => ipcRenderer.sendSync('db:removeItem', key)
+    removeItem: (key) => ipcRenderer.sendSync('db:removeItem', key),
+    export: () => ipcRenderer.invoke('db:export'),
+    import: (payload) => ipcRenderer.invoke('db:import', payload),
+    setEncryptionPassword: (password) => ipcRenderer.invoke('db:setEncryptionPassword', password),
+    clearEncryptionPassword: () => ipcRenderer.invoke('db:clearEncryptionPassword'),
+    getEncryptionState: () => ipcRenderer.invoke('db:getEncryptionState')
   },
   // 聊天会话 CRUD（替代文件系统 JSON 文件）
   session: {
@@ -150,5 +163,10 @@ const api = {
     ipcRenderer.send('agent:toolApprovalResponse', response)
   }
 }
+
+// 兼容旧版平铺访问方式，避免前端部分页面仍在直接读顶层字段
+api.getPath = (...args) => api.app.getPath(...args)
+api.showOpenDialog = (...args) => api.dialog.showOpenDialog(...args)
+api.showSaveDialog = (...args) => api.dialog.showSaveDialog(...args)
 
 contextBridge.exposeInMainWorld('electronAPI', api)

@@ -1,3 +1,4 @@
+// 文件操作桥接：把主进程文件能力整理成预加载可用的 API。
 const globalConfig = require('./global-config')
 const S3ClientWrapper = require('./s3-operations')
 const mysqlSync = require('./mysql-sync')

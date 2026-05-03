@@ -1,4 +1,5 @@
 <template>
+  <!-- 被省略的上下文列表：告诉用户哪些消息没有进入当前窗口。 -->
   <div
     v-if="entries.length"
     :class="['chat-context-preview', 'chat-context-preview--omitted', { 'is-dark': theme === 'dark' }]"
@@ -114,4 +115,3 @@ function entryKey(entry, index, prefix = '') {
   return parts.filter(Boolean).join('-')
 }
 </script>
-

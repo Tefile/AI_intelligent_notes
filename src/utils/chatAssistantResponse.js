@@ -1,3 +1,4 @@
+// 助手回复抽取工具：从各种响应载荷中提取最终可展示文本。
 function isDataMediaUrl(value) {
   return /^data:(image|video)\/[a-z0-9.+-]+;base64,/i.test(String(value || '').trim())
 }
@@ -77,6 +78,7 @@ function collectAssistantTextFragments(payload, options = {}) {
       visit(value.content, 'content', depth + 1)
     }
 
+    // 这里要递归扫多层 payload，兼容 OpenAI、代理层和历史协议里不同的字段命名。
     ;[
       'output_text',
       'text',

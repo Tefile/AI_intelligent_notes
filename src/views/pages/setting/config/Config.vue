@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 全局配置页：统一管理主题、目录、密码和同步相关配置。 -->
   <n-flex
     vertical
     align="center"
@@ -2058,14 +2059,17 @@ function resolveSaveDialogPath(result) {
   return ''
 }
 
-function openDirectoryDialog() {
+async function openDirectoryDialog() {
   const api = getElectronApi()
-  if (!api?.showOpenDialog) throw new Error('当前环境不支持目录选择。')
-  return resolveOpenDialogPath(api.showOpenDialog({ properties: ['openDirectory'] }))
+  const showOpenDialog = api?.showOpenDialog || api?.dialog?.showOpenDialog
+  if (!showOpenDialog) throw new Error('当前环境不支持目录选择。')
+  return resolveOpenDialogPath(await showOpenDialog({ properties: ['openDirectory'] }))
 }
 
 function getDefaultNotebookVenvRootPath() {
-  const userDataRoot = String(getElectronApi()?.getPath?.('userData') || '').trim()
+  const api = getElectronApi()
+  const getPath = api?.getPath || api?.app?.getPath
+  const userDataRoot = String(getPath?.('userData') || '').trim()
   if (!userDataRoot) return ''
   const trimmed = userDataRoot.replace(/[\\/]+$/, '')
   const useBackslash = trimmed.includes('\\')
@@ -2074,22 +2078,23 @@ function getDefaultNotebookVenvRootPath() {
     : `${trimmed}/.ai-tools-local/venv`
 }
 
-function openFileDialog() {
+async function openFileDialog() {
   const api = getElectronApi()
-  if (!api?.showOpenDialog) throw new Error('当前环境不支持文件选择。')
+  const showOpenDialog = api?.showOpenDialog || api?.dialog?.showOpenDialog
+  if (!showOpenDialog) throw new Error('当前环境不支持文件选择。')
   return resolveOpenDialogPath(
-    api.showOpenDialog({
+    await showOpenDialog({
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
   )
 }
 
-function saveFileDialog() {
+async function saveFileDialog() {
   const api = getElectronApi()
   if (!api?.showSaveDialog) throw new Error('当前环境不支持保存文件对话框。')
   return resolveSaveDialogPath(
-    api.showSaveDialog({
+    await api.showSaveDialog({
       title: '导出全局配置',
       defaultPath: 'ai-tools-config.json',
       filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -2271,6 +2276,16 @@ async function applyConfigPasswordTransition(options = {}) {
   const nextPassword = String(options.newPassword || '')
   const nextConfigSecurity = clearPassword ? { ...EMPTY_CONFIG_SECURITY } : { ...(options.nextConfigSecurity || EMPTY_CONFIG_SECURITY) }
   const baseNoteSecurity = noteSecurity.value
+  const nextNoteSecurity = clearPassword
+    ? {
+        ...baseNoteSecurity,
+        globalFallbackVerifier: null,
+        protectedNotes: cloneProtectedNotesMap()
+      }
+    : {
+        ...baseNoteSecurity,
+        protectedNotes: cloneProtectedNotesMap()
+      }
   const migration = hasConfigPassword.value
     ? await prepareFallbackMigration(currentPassword, clearPassword ? '' : nextPassword)
     : { nextProtectedNotes: cloneProtectedNotesMap(), rewrites: [] }
@@ -2291,12 +2306,24 @@ async function applyConfigPasswordTransition(options = {}) {
     await updateGlobalConfig({
       noteConfig: {
         noteSecurity: {
-          ...baseNoteSecurity,
+          ...nextNoteSecurity,
           protectedNotes: migration.nextProtectedNotes
         }
       },
       configSecurity: nextConfigSecurity
     })
+  } catch (err) {
+    await rollbackNoteRewrites(writtenEntries)
+    throw err
+  }
+
+  try {
+    const api = globalThis?.electronAPI?.db
+    if (clearPassword) {
+      await api?.clearEncryptionPassword?.()
+    } else {
+      await api?.setEncryptionPassword?.(nextPassword)
+    }
   } catch (err) {
     await rollbackNoteRewrites(writtenEntries)
     throw err
@@ -2322,7 +2349,7 @@ async function handleToggleTheme() {
 
 async function handlePickDataStorageRoot() {
   try {
-    const nextPath = openDirectoryDialog()
+    const nextPath = await openDirectoryDialog()
     if (!nextPath) return
     await setDataStorageRoot(nextPath)
     message.success('数据存储根目录已更新')
@@ -3019,7 +3046,7 @@ async function performProtectedAction(action, payload) {
 
 async function handleExportConfig() {
   try {
-    const filePath = saveFileDialog()
+    const filePath = await saveFileDialog()
     if (!filePath) return
     await requestProtectedAction('export', { filePath })
   } catch (err) {
@@ -3029,7 +3056,7 @@ async function handleExportConfig() {
 
 async function handleImportConfig() {
   try {
-    const filePath = openFileDialog()
+    const filePath = await openFileDialog()
     if (!filePath) return
     dialog.warning({
       title: '确认导入配置',

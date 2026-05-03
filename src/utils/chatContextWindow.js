@@ -1,3 +1,4 @@
+// 聊天上下文窗口工具：负责裁剪、汇总和显示当前模型上下文。
 export const CHAT_CONTEXT_WINDOW_PRESETS = Object.freeze({
   aggressive: Object.freeze({
     label: '紧凑',

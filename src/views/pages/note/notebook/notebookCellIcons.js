@@ -1,3 +1,4 @@
+// Notebook 单元图标映射：把不同单元类型映射到对应图标。
 import { h } from 'vue'
 
 function renderToolbarIcon(paths = []) {

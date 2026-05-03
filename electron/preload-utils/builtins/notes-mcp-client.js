@@ -1,3 +1,4 @@
+// 内置笔记 MCP 客户端：为笔记目录和文件操作提供本地实现。
 const path = require('path')
 const fs = require('fs').promises
 

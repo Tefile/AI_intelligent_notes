@@ -1,3 +1,4 @@
+// Notebook 运行时桥接：把笔记执行能力接到预加载层。
 ﻿const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');

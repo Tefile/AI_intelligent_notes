@@ -1,3 +1,4 @@
+// Notebook 魔法命令：解析 % 和 ! 这类快捷指令。
 function stripWrappingQuotes(text = '') {
   const raw = String(text || '').trim()
   if (!raw) return ''

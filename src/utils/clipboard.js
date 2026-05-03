@@ -1,3 +1,4 @@
+// 剪贴板工具：封装文本复制、读取和兼容处理。
 export async function copyTextToClipboard(text, options = {}) {
   const value = String(text || '')
   if (!value.trim()) return false

@@ -1,3 +1,4 @@
+// 文件操作工具：统一处理读写、缓存 Blob URL 和路径检查。
 function getFileOperationsApi() {
     return globalThis?.fileOperations || globalThis?.electronAPI?.fileOperations || null;
 }

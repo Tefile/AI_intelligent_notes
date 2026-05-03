@@ -1,4 +1,5 @@
 <template>
+  <!-- 应用根壳：负责主题、消息、对话框和全局样式注入。 -->
   <n-config-provider
     :theme-overrides="{ common: { fontWeightStrong: '600' } }"
     :theme="theme === 'dark' ? darkTheme : null"

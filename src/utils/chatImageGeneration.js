@@ -1,3 +1,4 @@
+// 聊天图片生成桥接：把生成任务和展示数据统一起来。
 function normalizeLowercaseText(value) {
   return String(value || '').trim().toLowerCase()
 }

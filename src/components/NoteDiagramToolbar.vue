@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 笔记图表工具栏：提供 Mermaid / 图表相关的插入与编辑入口。 -->
   <DropdownToolbar
     :title="toolbarTitle"
     :visible="visible"
@@ -189,6 +190,7 @@
 </template>
 
 <script setup>
+// 笔记图表工具栏：提供 Mermaid / 图表相关的插入与编辑入口。
 import { computed, inject, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { DropdownToolbar } from 'md-editor-v3'

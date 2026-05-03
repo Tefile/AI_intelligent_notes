@@ -1,8 +1,9 @@
+// 笔记模板注册表：把模板定义、片段生成和分类映射起来。
 ﻿import {
   buildSnippetForDiagramItem,
   getBuiltinDiagramTemplateGroups,
   getDiagramTemplateRegistry
-} from '@/utils/noteDiagramTemplates'
+} from './noteDiagramTemplates'
 
 export const NOTE_TEMPLATE_KINDS = Object.freeze(['mermaid', 'echarts', 'formula'])
 

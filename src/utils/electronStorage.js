@@ -1,3 +1,4 @@
+// Electron 存储适配层：封装本地持久化读写和降级方案。
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : null
 
 export function getDbStorage() {

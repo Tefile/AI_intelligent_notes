@@ -1,3 +1,4 @@
+// Notebook 运行时展示：把执行结果、错误和日志整理成 UI 文案。
 export function buildRuntimeMagicPreludeOutputs(lines = []) {
   return Array.isArray(lines) && lines.length
     ? [{ output_type: 'stream', name: 'stdout', text: `${lines.join('\n')}\n` }]

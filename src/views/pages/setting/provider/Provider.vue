@@ -1,4 +1,5 @@
 <template>
+  <!-- 服务商设置页：维护模型接口、可用模型和默认选择。 -->
   <n-flex
     vertical
     align="center"
@@ -90,27 +91,62 @@
         <n-form-item label="API 密钥" path="apikey">
           <n-input
             v-model:value="formData.apikey"
-            type="password"
-            show-password-toggle
+            :type="apiKeyInputType"
             placeholder="请输入 API 密钥"
-          />
+          >
+            <template #suffix>
+              <n-button
+                text
+                size="tiny"
+                :disabled="!formData.apikey"
+                @click.stop="handleToggleApiKeyVisibility"
+              >
+                {{ apiKeyActionLabel }}
+              </n-button>
+            </template>
+          </n-input>
         </n-form-item>
         <n-form-item label="模型" label-placement="top" :show-feedback="false">
           <n-flex vertical style="width: 100%;">
             <n-flex justify="space-between" align="center">
               <n-text depth="2">选择要启用的模型</n-text>
-              <n-button
-                size="tiny"
-                secondary
-                title="从当前服务商接口刷新模型列表"
-                :loading="loadingModels"
-                @click="refreshModels"
-              >
-                <template #icon>
-                  <n-icon :component="ArrowClockwise20Regular" />
-                </template>
-                刷新
-              </n-button>
+              <n-flex align="center" :size="8">
+                <n-tooltip v-if="invalidModelNames.length" trigger="hover">
+                  <template #trigger>
+                    <n-tag size="small" type="warning" bordered>
+                      失效模型 {{ invalidModelNames.length }}
+                    </n-tag>
+                  </template>
+                  <n-flex vertical :size="4" class="provider-invalid-model-tooltip">
+                    <n-text strong depth="1">当前已失效的模型</n-text>
+                    <n-text v-for="name in invalidModelNames" :key="name" depth="2" style="word-break: break-all;">
+                      {{ name }}
+                    </n-text>
+                  </n-flex>
+                </n-tooltip>
+
+                <n-button
+                  v-if="invalidModelNames.length"
+                  size="tiny"
+                  secondary
+                  @click="clearInvalidModels"
+                >
+                  清除失效模型
+                </n-button>
+
+                <n-button
+                  size="tiny"
+                  secondary
+                  title="从当前服务商接口刷新模型列表"
+                  :loading="loadingModels"
+                  @click="refreshModels"
+                >
+                  <template #icon>
+                    <n-icon :component="ArrowClockwise20Regular" />
+                  </template>
+                  刷新
+                </n-button>
+              </n-flex>
             </n-flex>
             <n-input
               v-model:value="modelFilterKeyword"
@@ -128,6 +164,43 @@
               size="small"
               style="margin-top: 8px;"
             />
+
+            <n-flex vertical style="margin-top: 14px; width: 100%;">
+              <n-flex justify="space-between" align="center">
+                <n-text depth="2">缓存差异</n-text>
+                <n-flex align="center" :size="8">
+                  <n-tag size="small" bordered>
+                    缓存 {{ cachedModelCount }}
+                  </n-tag>
+                  <n-tag size="small" type="error" bordered>
+                    已删除 {{ removedCachedModels.length }}
+                  </n-tag>
+                  <n-button
+                    v-if="removedCachedModels.length"
+                    size="tiny"
+                    secondary
+                    @click="clearRemovedModels"
+                  >
+                    清除不存在的模型
+                  </n-button>
+                </n-flex>
+              </n-flex>
+
+              <n-data-table
+                v-if="removedCachedModels.length"
+                :columns="removedModelColumns"
+                :data="removedCachedModels"
+                :loading="loadingModels"
+                :max-height="220"
+                :pagination="false"
+                :bordered="false"
+                size="small"
+                style="margin-top: 8px;"
+              />
+              <n-text v-else depth="3" style="margin-top: 8px;">
+                当前缓存和本次加载结果一致，没有发现已删除的模型。
+              </n-text>
+            </n-flex>
           </n-flex>
         </n-form-item>
       </n-form>
@@ -142,6 +215,27 @@
           </n-flex>
         </n-flex>
       </template>
+    </n-modal>
+
+    <n-modal v-model:show="showApiKeyUnlockModal" preset="card" title="验证全局密码" style="width: 420px; max-width: 95%;">
+      <n-flex vertical :size="14">
+        <n-text depth="3">
+          已设置全局配置密码，查看 API 密钥前需要先验证一次。
+        </n-text>
+        <n-input
+          v-model:value="apiKeyUnlockPassword"
+          type="password"
+          show-password-toggle
+          placeholder="请输入全局配置密码"
+          @keydown.enter.prevent="submitApiKeyUnlock"
+        />
+        <n-flex justify="flex-end" :size="10">
+          <n-button @click="cancelApiKeyUnlock">取消</n-button>
+          <n-button type="primary" :loading="apiKeyUnlockLoading" @click="submitApiKeyUnlock">
+            验证并查看
+          </n-button>
+        </n-flex>
+      </n-flex>
     </n-modal>
   </n-flex>
 </template>
@@ -160,6 +254,7 @@ import {
   NForm,
   NFormItem,
   NDataTable,
+  NTooltip,
   useDialog,
   useMessage
 } from 'naive-ui'
@@ -174,8 +269,10 @@ import {
   addProvider,
   updateProvider,
   deleteProvider,
-  getTheme
+  getTheme,
+  getConfigSecurity
 } from '@/utils/configListener'
+import { verifyPassword } from '@/utils/noteEncryption'
 
 const cardStyle = computed(() => ({
   width: 'calc((100% - 32px) / 3)',
@@ -186,6 +283,8 @@ const theme = getTheme()
 
 const providersRef = getProviders()
 const providers = computed(() => providersRef.value || [])
+const configSecurity = getConfigSecurity()
+const hasConfigPassword = computed(() => !!configSecurity.value?.passwordVerifier)
 
 const dialog = useDialog()
 const message = useMessage()
@@ -194,15 +293,24 @@ const formRef = ref(null)
 const showModal = ref(false)
 const modalMode = ref('add')
 const currentEditId = ref(null)
+const apiKeyVisible = ref(false)
+const showApiKeyUnlockModal = ref(false)
+const apiKeyUnlockPassword = ref('')
+const apiKeyUnlockLoading = ref(false)
 const modalTitle = computed(() => {
   return modalMode.value === 'add' ? '新增服务商' : '编辑服务商'
+})
+const apiKeyInputType = computed(() => (apiKeyVisible.value ? 'text' : 'password'))
+const apiKeyActionLabel = computed(() => {
+  return apiKeyVisible.value ? '隐藏' : '查看'
 })
 
 const formData = reactive({
   name: '',
   baseurl: '',
   apikey: '',
-  selectModels: []
+  selectModels: [],
+  modelCache: []
 })
 
 const rules = {
@@ -221,6 +329,52 @@ const rules = {
 const availableModels = ref([])
 const modelFilterKeyword = ref('')
 const loadingModels = ref(false)
+const availableModelsLoaded = ref(false)
+
+function normalizeModelItem(item) {
+  const id = String(item?.id || item?.name || item?.model || '').trim()
+  if (!id) return null
+  return {
+    id,
+    name: String(item?.name || '').trim(),
+    model: String(item?.model || '').trim(),
+    owned_by: String(item?.owned_by || '').trim()
+  }
+}
+
+function normalizeModelList(list) {
+  const out = []
+  const seen = new Set()
+  ;(Array.isArray(list) ? list : []).forEach((item) => {
+    const model = normalizeModelItem(item)
+    if (!model || seen.has(model.id)) return
+    seen.add(model.id)
+    out.push(model)
+  })
+  return out
+}
+
+const availableModelList = computed(() => normalizeModelList(availableModels.value))
+const cachedModelList = computed(() => normalizeModelList(formData.modelCache))
+const availableModelIdSet = computed(() => {
+  return new Set(availableModelList.value.map((row) => row.id))
+})
+
+const invalidModelNames = computed(() => {
+  if (!availableModelsLoaded.value) return []
+  const availableIds = availableModelIdSet.value
+  return (formData.selectModels || [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && !availableIds.has(id))
+})
+
+const removedCachedModels = computed(() => {
+  if (!availableModelsLoaded.value) return []
+  const availableIds = availableModelIdSet.value
+  return cachedModelList.value.filter((row) => !availableIds.has(row.id))
+})
+
+const cachedModelCount = computed(() => cachedModelList.value.length)
 
 const modelColumns = [
   {
@@ -258,6 +412,22 @@ const modelColumns = [
   }
 ]
 
+const removedModelColumns = [
+  {
+    title: '模型 ID',
+    key: 'id',
+    ellipsis: { tooltip: true }
+  },
+  {
+    title: '所属',
+    key: 'owned_by',
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.owned_by || '-'
+    }
+  }
+]
+
 function normalizeModelFilterKeyword(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -269,13 +439,29 @@ function matchesModelFilter(row, keyword, fields = []) {
 
 const filteredAvailableModels = computed(() => {
   const keyword = normalizeModelFilterKeyword(modelFilterKeyword.value)
-  return (availableModels.value || []).filter((row) =>
+  return availableModelList.value.filter((row) =>
     matchesModelFilter(row, keyword, ['id', 'name', 'model', 'owned_by'])
   )
 })
 
 function getProviderSummary(provider) {
   return provider?.baseurl || '未配置接口地址'
+}
+
+function clearInvalidModels() {
+  if (!invalidModelNames.value.length) return
+  // 只清理当前已经不存在的模型，保留仍然有效的选择，避免用户配置被误删。
+  const invalidSet = new Set(invalidModelNames.value)
+  formData.selectModels = (formData.selectModels || []).filter((id) => !invalidSet.has(String(id || '').trim()))
+  message.success('已清除失效模型')
+}
+
+function clearRemovedModels() {
+  if (!removedCachedModels.value.length) return
+  const removedSet = new Set(removedCachedModels.value.map((row) => row.id))
+  formData.selectModels = (formData.selectModels || []).filter((id) => !removedSet.has(String(id || '').trim()))
+  formData.modelCache = cachedModelList.value.filter((row) => !removedSet.has(row.id))
+  message.success('已清除不存在的模型')
 }
 
 function toggleModel(modelId, isSelected) {
@@ -374,10 +560,12 @@ async function refreshModels() {
   }
 
   loadingModels.value = true
+  availableModelsLoaded.value = false
   try {
     const base = normalizeBaseUrl(formData.baseurl)
     if (!base) throw new Error('接口地址为空')
 
+    // 兼容不同服务商的接口习惯：优先试 /models，再回退到 /v1/models。
     const candidates = [`${base}/models`]
     if (!/\/v1$/i.test(base)) candidates.push(`${base}/v1/models`)
 
@@ -407,13 +595,12 @@ async function refreshModels() {
         }
 
         const models = extractModelsFromResponseData(data)
-        availableModels.value = models
-          .map((item) => {
-            const id = String(item?.id || item?.name || item?.model || '').trim()
-            if (!id) return null
-            return { id, ...item }
-          })
-          .filter(Boolean)
+        availableModels.value = normalizeModelList(models)
+        availableModelsLoaded.value = true
+
+        if (currentEditId.value) {
+          formData.modelCache = availableModelList.value.map((row) => ({ ...row }))
+        }
 
         if (!availableModels.value.length) {
           const sampleKeys = data && typeof data === 'object' && !Array.isArray(data)
@@ -434,6 +621,7 @@ async function refreshModels() {
   } catch (err) {
     message.error('模型列表加载失败：' + (err?.message || String(err)))
     availableModels.value = []
+    availableModelsLoaded.value = false
   } finally {
     loadingModels.value = false
   }
@@ -444,8 +632,13 @@ function resetCustomForm() {
   formData.baseurl = ''
   formData.apikey = ''
   formData.selectModels = []
+  formData.modelCache = []
   availableModels.value = []
   modelFilterKeyword.value = ''
+  apiKeyVisible.value = false
+  showApiKeyUnlockModal.value = false
+  apiKeyUnlockPassword.value = ''
+  apiKeyUnlockLoading.value = false
 }
 
 function openAddModal() {
@@ -460,18 +653,69 @@ async function openEditModal(provider) {
   modalMode.value = 'edit'
   currentEditId.value = provider._id
   modelFilterKeyword.value = ''
+  apiKeyVisible.value = false
+  showApiKeyUnlockModal.value = false
+  apiKeyUnlockPassword.value = ''
+  apiKeyUnlockLoading.value = false
 
+  // 编辑时先重置临时态，再根据是否已有密钥决定要不要立即刷新模型列表。
   formData.name = provider.name || ''
   formData.baseurl = provider.baseurl || ''
   formData.apikey = provider.apikey || ''
   formData.selectModels = provider.selectModels ? [...provider.selectModels] : []
+  formData.modelCache = provider.modelCache ? normalizeModelList(provider.modelCache) : []
+  availableModelsLoaded.value = false
   if (formData.baseurl && formData.apikey) {
     refreshModels()
   } else {
-    availableModels.value = []
+    availableModels.value = formData.modelCache.map((row) => ({ ...row }))
+    availableModelsLoaded.value = !!availableModels.value.length
   }
   formRef.value?.restoreValidation()
   showModal.value = true
+}
+
+function cancelApiKeyUnlock() {
+  showApiKeyUnlockModal.value = false
+  apiKeyUnlockPassword.value = ''
+  apiKeyUnlockLoading.value = false
+}
+
+async function submitApiKeyUnlock() {
+  const password = String(apiKeyUnlockPassword.value || '')
+  if (!password) {
+    message.warning('请输入全局配置密码')
+    return
+  }
+
+  apiKeyUnlockLoading.value = true
+  try {
+    const ok = await verifyPassword(password, configSecurity.value.passwordVerifier)
+    if (!ok) {
+      message.error('全局配置密码错误')
+      return
+    }
+    apiKeyVisible.value = true
+    showApiKeyUnlockModal.value = false
+    apiKeyUnlockPassword.value = ''
+  } catch (err) {
+    message.error(err?.message || String(err))
+  } finally {
+    apiKeyUnlockLoading.value = false
+  }
+}
+
+function handleToggleApiKeyVisibility() {
+  if (!formData.apikey) return
+  if (apiKeyVisible.value) {
+    apiKeyVisible.value = false
+    return
+  }
+  if (!hasConfigPassword.value) {
+    apiKeyVisible.value = true
+    return
+  }
+  showApiKeyUnlockModal.value = true
 }
 
 const saving = ref(false)
@@ -495,7 +739,8 @@ function handleSave() {
         name,
         baseurl: formData.baseurl,
         apikey: formData.apikey,
-        selectModels: formData.selectModels
+        selectModels: formData.selectModels,
+        modelCache: availableModelList.value.map((row) => ({ ...row }))
       }
 
       const safeData = JSON.parse(JSON.stringify(providerData))
@@ -543,6 +788,12 @@ function confirmDelete(provider) {
 watch(showModal, (val) => {
   if (val) return
   availableModels.value = []
+  availableModelsLoaded.value = false
+  formData.modelCache = []
+  apiKeyVisible.value = false
+  showApiKeyUnlockModal.value = false
+  apiKeyUnlockPassword.value = ''
+  apiKeyUnlockLoading.value = false
 })
 </script>
 
@@ -616,6 +867,10 @@ watch(showModal, (val) => {
 
 .settings-page.is-dark .n-card:hover {
   box-shadow: 0 18px 34px rgba(2, 6, 23, 0.34);
+}
+
+.provider-invalid-model-tooltip {
+  max-width: 360px;
 }
 
 @keyframes settings-card-enter {

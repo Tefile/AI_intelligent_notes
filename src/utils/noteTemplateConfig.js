@@ -1,3 +1,4 @@
+// 笔记模板配置：维护模板树、收藏、最近使用和分类状态。
 ﻿import {
   BUILTIN_NOTE_TEMPLATE_ROOT_IDS,
   NOTE_TEMPLATE_KINDS,
@@ -6,7 +7,7 @@
   getBuiltinNoteTemplateRoots,
   getNoteTemplateKindMeta,
   normalizeNoteTemplateKind
-} from '@/utils/noteTemplateRegistry'
+} from './noteTemplateRegistry'
 
 export const MAX_RECENT_NOTE_TEMPLATES = 12
 
@@ -414,6 +415,7 @@ export function buildNextNoteEditorConfig(noteConfigValue, updater) {
   const current = normalizeNoteEditorConfig(rawNoteEditor)
   const nextState = normalizeGlobalState(updater(current.noteTemplates))
 
+  // 只替换模板状态本身，其他笔记编辑器字段沿用原值，避免把用户手工配置冲掉。
   return {
     ...restRawNoteEditor,
     ...current,
@@ -433,6 +435,7 @@ function filterTemplateRefs(state, validTemplateIds) {
 export function pushRecentTemplate(state, templateId) {
   const id = String(templateId || '').trim()
   if (!id) return state
+  // 最近使用列表保持去重并截断长度，最新点击的模板始终排到最前面。
   return {
     ...state,
     recent: [id, ...state.recent.filter((item) => item !== id)].slice(0, MAX_RECENT_NOTE_TEMPLATES)
@@ -444,6 +447,7 @@ export function toggleFavoriteTemplate(state, templateId) {
   if (!id) return state
 
   const exists = state.favorites.includes(id)
+  // 收藏开关保持不可变更新，外层可以直接拿返回值写回配置。
   return {
     ...state,
     favorites: exists
@@ -515,6 +519,7 @@ function buildNoteTemplateViewFromState(state) {
   const normalizedState = normalizeGlobalState(state)
   const builtinRoots = getBuiltinNoteTemplateRoots()
 
+  // 先把内置模板和自定义模板拼成一棵完整视图，再统一生成索引、收藏和最近使用映射。
   const rootsBase = [
     ...builtinRoots.map((root) => {
       const override = normalizedState.builtinRootOverrides?.[root.id]
@@ -732,6 +737,7 @@ export function buildNoteTemplateView(noteConfigValue) {
   const state = getNoteTemplateStateFromNoteConfig(noteConfigValue)
   const cacheKey = JSON.stringify(state)
   if (noteTemplateViewCache.has(cacheKey)) {
+    // 同一份归一化状态命中缓存时，顺手把它挪到最近使用端，减少重复重建。
     const cached = noteTemplateViewCache.get(cacheKey)
     noteTemplateViewCache.delete(cacheKey)
     noteTemplateViewCache.set(cacheKey, cached)

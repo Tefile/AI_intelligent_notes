@@ -1,3 +1,4 @@
+// 工具结果模型化：把工具调用结果压成适合模型阅读的文本。
 function isDataImageUrl(url) {
   return /^data:image\/[a-z0-9.+-]+;base64,/i.test(String(url || '').trim())
 }
@@ -33,6 +34,7 @@ export function sanitizeToolResultForModel(result) {
     if (typeof val === 'string') {
       const key = String(keyHint || '')
 
+      // 图片或超长 base64 会严重污染上下文，优先直接省略掉。
       if (KEY_HINT_BASE64.test(key)) {
         if (!val) return val
         if (isDataImageUrl(val) || looksLikeBase64Payload(val) || val.length > 200) {
@@ -55,6 +57,7 @@ export function sanitizeToolResultForModel(result) {
 
     if (Array.isArray(val)) {
       const limit = KEY_HINT_TRACE.test(String(keyHint || '')) ? 40 : 50
+      // 轨迹/日志数组只保留前面代表性的片段，避免把模型上下文撑爆。
       if (KEY_HINT_TRACE.test(String(keyHint || '')) && val.length > limit) {
         return [...val.slice(0, limit).map((item) => walk(item, depth + 1, keyHint)), `（已截断：数组过长，共 ${val.length} 项）`]
       }

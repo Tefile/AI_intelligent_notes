@@ -1,9 +1,8 @@
+// 内置 Agents MCP 客户端：给预加载层提供 agents 相关的本地协议实现。
 const globalConfig = require('../global-config')
 const { consumeJsonEventStream } = require('../stream-json-events')
 
 const BUILTIN_AGENTS_MCP_SERVER_ID = 'builtin_agents_mcp'
-const UTOOLS_AI_PROVIDER_ID = 'builtin_provider_utools_ai'
-const UTOOLS_AI_PROVIDER_TYPE = 'utools-ai'
 const BUILTIN_AGENTS_TRACE_EVENT = 'builtin-agents-trace'
 
 const AGENT_REASONING_EFFORT_OPTIONS = ['auto', 'low', 'medium', 'high']
@@ -575,34 +574,6 @@ function dispatchBuiltinAgentsToolApprovalRequest(detail = {}) {
   }
 }
 
-function getUtoolsApi() {
-  const host = getHostGlobal()
-  if (host?.utools) return host.utools
-  if (typeof globalThis !== 'undefined' && globalThis?.utools) return globalThis.utools
-  return null
-}
-
-function canUseUtoolsAi() {
-  return typeof getUtoolsApi()?.ai === 'function'
-}
-
-function isUtoolsBuiltinProvider(providerOrId) {
-  if (!providerOrId) return false
-  if (typeof providerOrId === 'string') return cleanString(providerOrId) === UTOOLS_AI_PROVIDER_ID
-
-  return (
-    cleanString(providerOrId?._id) === UTOOLS_AI_PROVIDER_ID ||
-    cleanString(providerOrId?.providerType) === UTOOLS_AI_PROVIDER_TYPE
-  )
-}
-
-async function listUtoolsAiModelIds() {
-  const api = getUtoolsApi()
-  if (typeof api?.allAiModels !== 'function') return []
-  const list = await api.allAiModels()
-  return normalizeStringList((Array.isArray(list) ? list : []).map((item) => item?.id))
-}
-
 function coercePlainTextContent(content) {
   if (content == null) return ''
   if (typeof content === 'string') return content
@@ -957,7 +928,6 @@ async function resolveExecutionProfile({ config, agent, trace }) {
   const providerId = cleanString(
     agent?.provider ||
     chatConfig.defaultProviderId ||
-    Object.values(providers).find((item) => isUtoolsBuiltinProvider(item))?._id ||
     Object.values(providers)[0]?._id ||
     ''
   )
@@ -967,17 +937,6 @@ async function resolveExecutionProfile({ config, agent, trace }) {
   if (!provider) throw new Error(`Provider not found: ${providerId}`)
 
   let providerModels = normalizeStringList(provider?.selectModels)
-  if (isUtoolsBuiltinProvider(provider) && !providerModels.length) {
-    try {
-      providerModels = await listUtoolsAiModelIds()
-    } catch (err) {
-      appendTrace(trace, 'provider.models_failed', {
-        title: 'Failed to query uTools AI models',
-        provider_id: providerId,
-        error: err?.message || String(err)
-      })
-    }
-  }
 
   const model = cleanString(agent?.model || chatConfig.defaultModel || providerModels[0] || '')
   if (!model) throw new Error('Model is not configured on Agent or defaults')

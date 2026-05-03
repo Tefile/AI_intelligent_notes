@@ -1,3 +1,4 @@
+// 编辑器补全工具：统一 CodeMirror 的候选项、提示和快捷行为。
 import { completeAnyWord, completeFromList, insertCompletionText, pickedCompletion } from '@codemirror/autocomplete'
 
 const IDENTIFIER_CHAR_PATTERN = /[a-zA-Z0-9_.]/

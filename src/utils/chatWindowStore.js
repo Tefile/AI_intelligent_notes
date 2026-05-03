@@ -1,3 +1,4 @@
+// 聊天窗口状态仓库：保存会话窗口、草稿和临时 UI 状态。
 import { getDbStorage } from '@/utils/electronStorage'
 
 const CHAT_WINDOW_STORE_KEY = 'ai-tools:chat-windows:v1'

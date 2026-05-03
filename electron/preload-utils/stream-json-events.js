@@ -1,3 +1,4 @@
+// 流式 JSON 事件桥接：把分块数据解包成连续事件。
 function createAbortError(message = 'Aborted') {
   const err = new Error(message)
   err.name = 'AbortError'

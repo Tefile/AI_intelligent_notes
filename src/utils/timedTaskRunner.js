@@ -1,3 +1,4 @@
+// 定时任务调度器：负责读取计划并按时间触发执行。
 import { watch } from 'vue'
 import { getTimedTasks, updateTimedTask } from '@/utils/configListener'
 import { runTimedTaskOnce } from '@/utils/timedTaskRunnerExecutor'

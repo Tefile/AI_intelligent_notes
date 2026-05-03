@@ -1,6 +1,8 @@
 ﻿<template>
+  <!-- Notebook 输出区：展示代码单元执行后的结果和日志。 -->
   <div :class="['notebook-output', { 'is-dark': theme === 'dark' }]">
     <template v-for="(item, index) in normalizedOutputs" :key="`${item.output_type}-${index}`">
+      <!-- 渲染顺序按信息密度从高到低排列，先用最适合的格式展示，再退回到普通文本。 -->
       <div class="notebook-output__block notebook-output__block--stream" v-if="item.output_type === 'stream'">
         <div class="notebook-output__meta">
           {{ item.name || 'stdout' }}

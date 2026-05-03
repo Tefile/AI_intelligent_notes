@@ -1,3 +1,4 @@
+// 图表围栏元数据：解析 Markdown 代码块中的图表配置。
 const DIAGRAM_KINDS = new Set(['echarts', 'mermaid'])
 const DIMENSION_PATTERN = /^(\d+(?:\.\d+)?)(px|%|vw|vh|vmin|vmax|rem|em|ch|ex|cm|mm|in|pt|pc)?$/i
 const ATTR_PATTERN = /([a-zA-Z][\w-]*)\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;{}]+)/g

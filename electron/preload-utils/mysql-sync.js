@@ -1,3 +1,4 @@
+// MySQL 同步桥接：提供数据库同步所需的本地适配层。
 const path = require('path')
 const fs = require('fs').promises
 const crypto = require('crypto')

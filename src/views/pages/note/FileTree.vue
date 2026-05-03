@@ -1,4 +1,5 @@
 ﻿<template>
+  <!-- 笔记文件树：负责浏览、切换和管理目录结构。 -->
   <div :class="['note-tree', { 'is-dark': theme === 'dark' }]" @contextmenu.prevent="handleTreeContextMenu">
     <div class="note-tree__toolbar" @contextmenu.stop.prevent>
       <n-tooltip trigger="hover">

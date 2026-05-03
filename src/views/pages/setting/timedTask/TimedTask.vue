@@ -1,4 +1,5 @@
 <template>
+  <!-- 定时任务设置页：配置周期、调度和执行入口。 -->
   <n-flex
     vertical
     align="center"
@@ -171,7 +172,15 @@
         <n-divider style="margin: 16px 0;">后台行为与扩展</n-divider>
 
         <n-form-item label="MCP 服务" path="mcpIds">
-          <n-select v-model:value="formData.mcpIds" multiple :options="mcpOptions" filterable placeholder="可多选，执行时全部挂载" />
+          <n-select
+            v-model:value="formData.mcpIds"
+            multiple
+            :options="mcpOptions"
+            :render-label="renderMcpOptionLabel"
+            :menu-props="mcpSelectMenuProps"
+            filterable
+            placeholder="可多选，执行时全部挂载"
+          />
         </n-form-item>
 
         <n-form-item label="技能" path="skillIds">
@@ -209,7 +218,7 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive } from 'vue'
+import { computed, ref, reactive, h } from 'vue'
 import {
   NCard,
   NFlex,
@@ -319,8 +328,36 @@ const monthDayOptions = Array.from({ length: 31 }).map((_, idx) => ({ label: Str
 const agentOptions = computed(() => (agents.value || []).map((a) => ({ label: a.name || a._id, value: a._id })))
 const skillOptions = computed(() => (skills.value || []).map((s) => ({ label: s.name || s._id, value: s._id })))
 const mcpOptions = computed(() =>
-  (mcpServers.value || []).map((s) => ({ label: s.name || s._id, value: s._id, disabled: !!s.disabled }))
+  (mcpServers.value || []).map((s) => ({
+    label: s.name || s._id,
+    name: s.name || s._id,
+    transportType: s.transportType || s.type || '未知',
+    value: s._id,
+    disabled: !!s.disabled
+  }))
 )
+
+const mcpSelectMenuProps = {
+  class: 'timed-task-mcp-select-menu',
+  style: {
+    '--n-option-height': '20px',
+    '--n-option-padding': '0 8px',
+    '--n-option-padding-left': '8px',
+    '--n-option-padding-right': '8px'
+  }
+}
+
+function renderMcpOptionLabel(option) {
+  const name = String(option?.name || option?.label || option?._id || '').trim()
+  const id = String(option?._id || option?.value || '').trim()
+  const type = String(option?.transportType || option?.type || '未知').trim() || '未知'
+
+  return h('div', { class: 'timed-task-mcp-select-option' }, [
+    h('span', { class: 'timed-task-mcp-select-option__name' }, name || '未命名'),
+    h('span', { class: 'timed-task-mcp-select-option__id' }, id || '未知'),
+    h('span', { class: 'timed-task-mcp-select-option__type' }, `类型：${type}`)
+  ])
+}
 
 function resetForm() {
   formData.name = ''
@@ -666,5 +703,55 @@ function confirmDelete(task) {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+:deep(.timed-task-mcp-select-menu .n-base-select-option) {
+  min-height: 20px;
+  height: 20px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:deep(.timed-task-mcp-select-menu .n-base-select-option__content) {
+  min-height: 20px;
+  line-height: 20px;
+}
+
+:deep(.timed-task-mcp-select-menu .timed-task-mcp-select-option) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+
+:deep(.timed-task-mcp-select-menu .timed-task-mcp-select-option__name) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+:deep(.timed-task-mcp-select-menu .timed-task-mcp-select-option__id) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(71, 85, 105, 0.86);
+}
+
+:deep(.timed-task-mcp-select-menu .timed-task-mcp-select-option__type) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: rgba(100, 116, 139, 0.9);
+}
+
+.settings-page.is-dark :deep(.timed-task-mcp-select-menu .timed-task-mcp-select-option__id) {
+  color: rgba(203, 213, 225, 0.9);
+}
+
+.settings-page.is-dark :deep(.timed-task-mcp-select-menu .timed-task-mcp-select-option__type) {
+  color: rgba(226, 232, 240, 0.88);
 }
 </style>

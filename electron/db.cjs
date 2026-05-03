@@ -1,10 +1,26 @@
 const initSqlJs = require('sql.js')
 const path = require('node:path')
 const fs = require('node:fs')
+const crypto = require('node:crypto')
 
 let dbPath = ''
 let db = null
 let SQL = null
+let encryptionPassword = ''
+let dbLocked = false
+
+const ENCRYPTION_CONTAINER_MAGIC = 'AITOOLS_DB_ENC_V1'
+const ENCRYPTION_ITERATIONS = 240000
+const ENCRYPTION_ALGORITHM = 'AES-256-GCM'
+const PASSWORD_CACHE_SUFFIX = '.pass'
+
+function getElectronSafeStorage() {
+  try {
+    return require('electron')?.safeStorage || null
+  } catch {
+    return null
+  }
+}
 
 const DEFAULT_USER_ID = 'local-default'
 const DEFAULT_USER_NAME = 'Local User'
@@ -20,6 +36,220 @@ function isPlainObject(value) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
+}
+
+function getPasswordCachePath() {
+  return dbPath ? `${dbPath}${PASSWORD_CACHE_SUFFIX}` : ''
+}
+
+function isEncryptedContainer(buffer) {
+  if (!buffer) return false
+  const prefix = Buffer.from(`${ENCRYPTION_CONTAINER_MAGIC}\n`, 'utf8')
+  return Buffer.from(buffer).subarray(0, prefix.length).equals(prefix)
+}
+
+function deriveEncryptionKey(password, salt) {
+  return crypto.pbkdf2Sync(String(password || ''), salt, ENCRYPTION_ITERATIONS, 32, 'sha256')
+}
+
+function encryptDatabaseBuffer(plaintextBuffer, password) {
+  const salt = crypto.randomBytes(16)
+  const iv = crypto.randomBytes(12)
+  const key = deriveEncryptionKey(password, salt)
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
+  const ciphertext = Buffer.concat([cipher.update(Buffer.from(plaintextBuffer)), cipher.final()])
+  const authTag = cipher.getAuthTag()
+  const payload = {
+    v: 1,
+    alg: ENCRYPTION_ALGORITHM,
+    kdf: 'PBKDF2-SHA256',
+    iterations: ENCRYPTION_ITERATIONS,
+    salt: salt.toString('base64'),
+    iv: iv.toString('base64'),
+    authTag: authTag.toString('base64'),
+    ciphertext: ciphertext.toString('base64')
+  }
+  return Buffer.from(`${ENCRYPTION_CONTAINER_MAGIC}\n${JSON.stringify(payload)}\n`, 'utf8')
+}
+
+function decryptDatabaseBuffer(containerBuffer, password) {
+  const text = Buffer.from(containerBuffer).toString('utf8')
+  const firstNewline = text.indexOf('\n')
+  const secondNewline = text.indexOf('\n', firstNewline + 1)
+  if (firstNewline < 0 || secondNewline < 0) {
+    throw new Error('encrypted database container is invalid')
+  }
+  const header = text.slice(firstNewline + 1, secondNewline)
+  const payload = JSON.parse(header)
+  if (payload?.alg !== ENCRYPTION_ALGORITHM || payload?.kdf !== 'PBKDF2-SHA256') {
+    throw new Error('unsupported database encryption format')
+  }
+  const salt = Buffer.from(String(payload.salt || ''), 'base64')
+  const iv = Buffer.from(String(payload.iv || ''), 'base64')
+  const authTag = Buffer.from(String(payload.authTag || ''), 'base64')
+  const ciphertext = Buffer.from(String(payload.ciphertext || ''), 'base64')
+  const key = deriveEncryptionKey(password, salt)
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
+  decipher.setAuthTag(authTag)
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+}
+
+function readPasswordCache() {
+  const cachePath = getPasswordCachePath()
+  if (!cachePath || !fs.existsSync(cachePath)) return ''
+  const safeStorage = getElectronSafeStorage()
+  try {
+    const raw = fs.readFileSync(cachePath)
+    if (safeStorage?.decryptString) {
+      return String(safeStorage.decryptString(raw) || '')
+    }
+    return raw.toString('utf8')
+  } catch {
+    return ''
+  }
+}
+
+function writePasswordCache(password) {
+  const cachePath = getPasswordCachePath()
+  if (!cachePath) return false
+  const safeStorage = getElectronSafeStorage()
+  try {
+    ensureParentDir(cachePath)
+    const text = String(password || '')
+    const payload = safeStorage?.encryptString ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8')
+    fs.writeFileSync(cachePath, payload)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function clearPasswordCache() {
+  const cachePath = getPasswordCachePath()
+  if (!cachePath) return false
+  try {
+    if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function updateEncryptionRuntime(password, { persistCache = true } = {}) {
+  const text = String(password || '')
+  encryptionPassword = text
+  dbLocked = false
+  if (persistCache) {
+    if (text) {
+      writePasswordCache(text)
+    } else {
+      clearPasswordCache()
+    }
+  }
+  return text
+}
+
+function getEncryptionState() {
+  const fileExists = !!dbPath && fs.existsSync(dbPath)
+  const cachedPassword = encryptionPassword || readPasswordCache()
+  return {
+    encrypted: fileExists ? isEncryptedContainer(fs.readFileSync(dbPath)) : false,
+    locked: dbLocked,
+    hasPassword: !!cachedPassword,
+    passwordCached: !!encryptionPassword || !!readPasswordCache()
+  }
+}
+
+function readDatabaseFileBuffer() {
+  if (!dbPath || !fs.existsSync(dbPath)) return null
+  return fs.readFileSync(dbPath)
+}
+
+function loadDatabaseFromDisk(passwordCandidate = '') {
+  const buffer = readDatabaseFileBuffer()
+  if (!buffer) {
+    loadDatabaseFromBuffer(null)
+    return { encrypted: false, loaded: true }
+  }
+
+  if (isEncryptedContainer(buffer)) {
+    const effectivePassword = String(passwordCandidate || encryptionPassword || readPasswordCache() || '')
+    if (!effectivePassword) {
+      db = null
+      dbLocked = true
+      return { encrypted: true, loaded: false, locked: true }
+    }
+    const decrypted = decryptDatabaseBuffer(buffer, effectivePassword)
+    updateEncryptionRuntime(effectivePassword, { persistCache: false })
+    loadDatabaseFromBuffer(decrypted)
+    return { encrypted: true, loaded: true }
+  }
+
+  loadDatabaseFromBuffer(buffer)
+  return { encrypted: false, loaded: true }
+}
+
+function loadDatabaseFromBuffer(buffer) {
+  db = new SQL.Database(buffer ? Buffer.from(buffer) : undefined)
+
+  db.run('PRAGMA journal_mode = OFF')
+  db.run('PRAGMA foreign_keys = ON')
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id           TEXT PRIMARY KEY,
+      nickname     TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL DEFAULT '',
+      email        TEXT NOT NULL DEFAULT '',
+      avatar       TEXT NOT NULL DEFAULT '',
+      provider     TEXT NOT NULL DEFAULT 'sqlite',
+      role         TEXT NOT NULL DEFAULT 'owner',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS kv_store (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id             TEXT PRIMARY KEY,
+      title          TEXT NOT NULL DEFAULT '',
+      path           TEXT NOT NULL UNIQUE,
+      folder         TEXT NOT NULL DEFAULT '',
+      user_id        TEXT NOT NULL DEFAULT 'local-default',
+      messages_json  TEXT NOT NULL DEFAULT '[]',
+      state_json     TEXT NOT NULL DEFAULT '{}',
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  try { db.run("ALTER TABLE chat_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT 'local-default'") } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_folder ON chat_sessions(folder)') } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_path ON chat_sessions(path)') } catch {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON chat_sessions(user_id)') } catch {}
+
+  listUsers()
+  getCurrentUserId()
+  db.run("UPDATE chat_sessions SET user_id = ? WHERE user_id IS NULL OR user_id = ''", [getCurrentUserId()])
+  saveToDisk()
+  dbLocked = false
+  return db
 }
 
 function normalizeUserId(value, fallback = DEFAULT_USER_ID) {
@@ -97,13 +327,63 @@ function ensureParentDir(filePath) {
 }
 
 function saveToDisk() {
-  if (!db || !dbPath) return
+  if (!db || !dbPath || (dbLocked && !encryptionPassword)) return
   try {
-    const buffer = Buffer.from(db.export())
-    fs.writeFileSync(dbPath, buffer)
+    const plainBuffer = Buffer.from(db.export())
+    const outputBuffer = encryptionPassword
+      ? encryptDatabaseBuffer(plainBuffer, encryptionPassword)
+      : plainBuffer
+    ensureParentDir(dbPath)
+    fs.writeFileSync(dbPath, outputBuffer)
   } catch (err) {
     console.error('[db] failed to save database', err?.message || err)
   }
+}
+
+function rebindDatabasePath(nextDbPath) {
+  const normalizedPath = typeof nextDbPath === 'string' ? path.resolve(String(nextDbPath).trim()) : ''
+  if (!normalizedPath) throw new Error('database path is required')
+
+  const previousPath = dbPath
+  if (previousPath === normalizedPath) {
+    ensureParentDir(dbPath)
+    if (encryptionPassword) {
+      writePasswordCache(encryptionPassword)
+    }
+    return dbPath
+  }
+
+  dbPath = normalizedPath
+  ensureParentDir(dbPath)
+  saveToDisk()
+  if (encryptionPassword) {
+    writePasswordCache(encryptionPassword)
+  } else {
+    clearPasswordCache()
+  }
+  return dbPath
+}
+
+function exportDatabase() {
+  if (!db) throw new Error('database is not initialized')
+  saveToDisk()
+  return Buffer.from(db.export())
+}
+
+function importDatabase(buffer) {
+  if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) {
+    throw new Error('database buffer is required')
+  }
+  if (!dbPath) throw new Error('database path is not initialized')
+  const normalizedBuffer = Buffer.from(buffer)
+  if (db) {
+    try {
+      db.close()
+    } catch {}
+  }
+  db = new SQL.Database(normalizedBuffer)
+  saveToDisk()
+  return true
 }
 
 function readAppStateValue(key) {
@@ -282,73 +562,17 @@ async function init(_dbPath) {
   }
 
   SQL = await initSqlJs()
-  if (fs.existsSync(dbPath)) {
-    try {
-      const buffer = fs.readFileSync(dbPath)
-      db = new SQL.Database(buffer)
-    } catch {
-      db = new SQL.Database()
+  try {
+    const result = loadDatabaseFromDisk()
+    if (!result.loaded) {
+      return null
     }
-  } else {
+  } catch (err) {
+    console.error('[db] failed to initialize database', err?.message || err)
     db = new SQL.Database()
+    dbLocked = false
   }
 
-  db.run('PRAGMA journal_mode = OFF')
-  db.run('PRAGMA foreign_keys = ON')
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS app_state (
-      key        TEXT PRIMARY KEY,
-      value      TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id           TEXT PRIMARY KEY,
-      nickname     TEXT NOT NULL DEFAULT '',
-      display_name TEXT NOT NULL DEFAULT '',
-      email        TEXT NOT NULL DEFAULT '',
-      avatar       TEXT NOT NULL DEFAULT '',
-      provider     TEXT NOT NULL DEFAULT 'sqlite',
-      role         TEXT NOT NULL DEFAULT 'owner',
-      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS kv_store (
-      key        TEXT PRIMARY KEY,
-      value      TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `)
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS chat_sessions (
-      id             TEXT PRIMARY KEY,
-      title          TEXT NOT NULL DEFAULT '',
-      path           TEXT NOT NULL UNIQUE,
-      folder         TEXT NOT NULL DEFAULT '',
-      user_id        TEXT NOT NULL DEFAULT 'local-default',
-      messages_json  TEXT NOT NULL DEFAULT '[]',
-      state_json     TEXT NOT NULL DEFAULT '{}',
-      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `)
-
-  try { db.run("ALTER TABLE chat_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT 'local-default'") } catch {}
-  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_folder ON chat_sessions(folder)') } catch {}
-  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_path ON chat_sessions(path)') } catch {}
-  try { db.run('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON chat_sessions(user_id)') } catch {}
-
-  listUsers()
-  getCurrentUserId()
-  db.run("UPDATE chat_sessions SET user_id = ? WHERE user_id IS NULL OR user_id = ''", [getCurrentUserId()])
-  saveToDisk()
   return db
 }
 
@@ -402,6 +626,21 @@ function removeItem(key) {
   } catch {
     return false
   }
+}
+
+function setEncryptionPassword(password) {
+  const nextPassword = updateEncryptionRuntime(password, { persistCache: true })
+  if (!db && fs.existsSync(dbPath)) {
+    loadDatabaseFromDisk(nextPassword)
+  }
+  saveToDisk()
+  return getEncryptionState()
+}
+
+function clearEncryptionPassword() {
+  updateEncryptionRuntime('', { persistCache: true })
+  saveToDisk()
+  return getEncryptionState()
 }
 
 function sessionCreate(data) {
@@ -534,6 +773,10 @@ function _uuid() {
 module.exports = {
   init,
   close,
+  rebindDatabasePath,
+  setEncryptionPassword,
+  clearEncryptionPassword,
+  getEncryptionState,
   getItem,
   setItem,
   removeItem,
@@ -549,5 +792,8 @@ module.exports = {
   listUsers,
   saveUser,
   switchUser,
-  deleteUser
+  deleteUser,
+  exportDatabase,
+  importDatabase,
+  getDbPath: () => dbPath
 }

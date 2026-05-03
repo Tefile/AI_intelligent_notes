@@ -1,4 +1,5 @@
 <template>
+  <!-- MCP 服务设置页：管理服务端、参数和连通性。 -->
   <n-flex
     vertical
     align="center"
@@ -645,7 +646,12 @@ import {
   deleteMcpServer,
   getTheme
 } from '@/utils/configListener'
-import { createMCPClient, getMcpPrompt, closePooledMCPClient } from '@/utils/mcpClient'
+import {
+  createMCPClient,
+  getMcpPrompt,
+  closePooledMCPClient,
+  normalizeMcpServerConfigForBridge
+} from '@/utils/mcpClient'
 import McpArgumentForm from '@/components/McpArgumentForm.vue'
 import {
   buildMcpArgsFromForm,
@@ -672,7 +678,7 @@ const message = useMessage()
 async function withTransientClient(serverConfig, handler) {
   let client = null
   try {
-    client = createMCPClient(serverConfig)
+    client = createMCPClient(normalizeMcpServerConfigForBridge(serverConfig))
     return await handler(client)
   } finally {
     try {
