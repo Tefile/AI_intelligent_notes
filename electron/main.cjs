@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Electron 主进程入口
  *
  * 负责：
@@ -13,6 +13,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const db = require('./db.cjs')
+const storagePaths = require('./storage-paths.cjs')
 
 const isDev = process.env.NODE_ENV === 'development'
 const DEV_URL = 'http://localhost:5173'
