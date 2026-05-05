@@ -1,6 +1,9 @@
 // S3 操作桥接：封装对象存储上传、下载和签名请求。
 const { AwsClient } = require('aws4fetch');
 const fs = require('fs').promises;
+const https = require('node:https');
+const http = require('node:http');
+const { URL } = require('node:url');
 
 class S3ClientWrapper {
     /**
@@ -29,6 +32,7 @@ class S3ClientWrapper {
         this.bucket = bucket;
         this.region = region;
         this.forcePathStyle = forcePathStyle;
+        this.lastRequestUrl = '';
 
         // 处理 endpoint：若未提供，则按 AWS 标准格式拼接
         if (endpoint) {
@@ -45,6 +49,53 @@ class S3ClientWrapper {
             secretAccessKey,
             region,
             service: 's3', // 固定为 s3
+        });
+    }
+
+    async _signedFetch(url, init = {}) {
+        const signedRequest = await this.client.sign(url, init);
+        this.lastRequestUrl = String(signedRequest.url || url || '');
+        const headers = Object.fromEntries(signedRequest.headers.entries());
+        const targetUrl = new URL(String(signedRequest.url || url || ''));
+        const transport = targetUrl.protocol === 'http:' ? http : https;
+        const method = String(signedRequest.method || init.method || 'GET').toUpperCase();
+
+        const requestBody = init.body !== undefined
+            ? (Buffer.isBuffer(init.body) ? init.body : Buffer.from(init.body))
+            : null;
+
+        return await new Promise((resolve, reject) => {
+            const req = transport.request(targetUrl, {
+                method,
+                headers
+            }, (res) => {
+                const chunks = [];
+                res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+                res.on('end', () => {
+                    const body = Buffer.concat(chunks);
+                    resolve({
+                        ok: res.statusCode >= 200 && res.statusCode < 300,
+                        status: res.statusCode || 0,
+                        headers: new Headers(Object.entries(res.headers).flatMap(([key, value]) => {
+                            if (Array.isArray(value)) return value.map((item) => [key, String(item)]);
+                            if (value === undefined) return [];
+                            return [[key, String(value)]];
+                        })),
+                        text: async () => body.toString('utf8'),
+                        arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+                    });
+                });
+            });
+
+            req.on('error', (error) => {
+                const cause = error?.cause?.message || error?.message || String(error || 'unknown error');
+                reject(new Error(`${method} ${this.lastRequestUrl} failed: ${cause}`));
+            });
+
+            if (requestBody) {
+                req.write(requestBody);
+            }
+            req.end();
         });
     }
 
@@ -112,7 +163,7 @@ class S3ClientWrapper {
             ...this._metadataToHeaders(options.metadata),
         };
 
-        const response = await this.client.fetch(url, {
+        const response = await this._signedFetch(url, {
             method: 'PUT',
             headers,
             body: fileContent,
@@ -120,7 +171,7 @@ class S3ClientWrapper {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`上传失败 (${response.status}): ${errorText}`);
+            throw new Error(`上传失败 (${response.status}) requestUrl=${url}: ${errorText}`);
         }
 
         // 返回类似 SDK 的结构
@@ -138,9 +189,9 @@ class S3ClientWrapper {
      */
     async deleteFile(bucketName, s3Key) {
         const url = this._buildUrl(s3Key, bucketName);
-        const response = await this.client.fetch(url, { method: 'DELETE' });
+        const response = await this._signedFetch(url, { method: 'DELETE' });
         if (!response.ok && response.status !== 204) {
-            throw new Error(`删除失败 (${response.status})`);
+            throw new Error(`删除失败 (${response.status}) requestUrl=${url}`);
         }
         return { $metadata: { httpStatusCode: response.status } };
     }
@@ -161,8 +212,8 @@ class S3ClientWrapper {
             if (prefix) url.searchParams.set('prefix', prefix);
             if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
             
-            const response = await this.client.fetch(url.toString(), { method: 'GET' });
-            if (!response.ok) throw new Error(`列出对象失败 (${response.status})`);
+            const response = await this._signedFetch(url.toString(), { method: 'GET' });
+            if (!response.ok) throw new Error(`列出对象失败 (${response.status}) requestUrl=${url.toString()}`);
             const xml = await response.text();
             
             const keys = this._parseKeysFromXml(xml);
@@ -200,9 +251,9 @@ class S3ClientWrapper {
      */
     async headObject(bucketName, s3Key) {
         const url = this._buildUrl(s3Key, bucketName);
-        const response = await this.client.fetch(url, { method: 'HEAD' });
+        const response = await this._signedFetch(url, { method: 'HEAD' });
         if (response.status === 404) return null;
-        if (!response.ok) throw new Error(`获取元数据失败 (${response.status})`);
+        if (!response.ok) throw new Error(`获取元数据失败 (${response.status}) requestUrl=${url}: ${await response.text().catch(() => '')}`);
 
         return {
             size: parseInt(response.headers.get('Content-Length') || '0'),
@@ -221,16 +272,20 @@ class S3ClientWrapper {
      */
     async downloadFile(bucketName, s3Key, localFilePath) {
         const url = this._buildUrl(s3Key, bucketName);
-        const response = await this.client.fetch(url, { method: 'GET' });
+        const response = await this._signedFetch(url, { method: 'GET' });
         if (!response.ok) {
             if (response.status === 404) {
                 throw new Error(`对象不存在: ${s3Key}`);
             }
-            throw new Error(`下载失败 (${response.status}): ${await response.text()}`);
+            throw new Error(`下载失败 (${response.status}) requestUrl=${url}: ${await response.text()}`);
         }
         const arrayBuffer = await response.arrayBuffer();
         await fs.writeFile(localFilePath, Buffer.from(arrayBuffer));
         return { $metadata: { httpStatusCode: response.status } };
+    }
+
+    getLastRequestUrl() {
+        return this.lastRequestUrl || '';
     }
 }
 

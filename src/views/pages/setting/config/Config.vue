@@ -823,15 +823,23 @@
           <n-flex vertical :size="8" style="flex: 1; min-width: 0;">
             <n-flex align="center" :size="12">
               <n-button secondary :loading="syncCenterModal.testing" @click="handleTestSyncProvider">测试连接</n-button>
-              <n-text
-                v-if="syncCenterModal.testResult.message"
+              <n-tag
+                v-if="syncCenterModal.testResult.status !== 'idle'"
                 :type="syncCenterModal.testResult.status === 'success' ? 'success' : syncCenterModal.testResult.status === 'error' ? 'error' : 'default'"
-                depth="3"
-                class="sync-test-feedback"
+                round
+                :bordered="false"
               >
-                {{ syncCenterModal.testResult.message }}
-              </n-text>
+                {{ syncCenterModal.testResult.status === 'success' ? '已验证' : syncCenterModal.testResult.status === 'error' ? '验证失败' : '验证中' }}
+              </n-tag>
             </n-flex>
+            <n-text
+              v-if="syncCenterModal.testResult.message"
+              depth="3"
+              class="sync-test-feedback"
+              :type="syncCenterModal.testResult.status === 'success' ? 'success' : syncCenterModal.testResult.status === 'error' ? 'error' : 'default'"
+            >
+              {{ syncCenterModal.testResult.message }}
+            </n-text>
           </n-flex>
           <n-flex justify="flex-end" :size="12">
             <n-button @click="closeSyncCenterModal">取消</n-button>
@@ -1211,6 +1219,12 @@ const cloudProviderOptions = [
   { label: '腾讯云 COS', value: 'tencent_cos' }
 ]
 
+function normalizeCloudPathStyle(provider, forcePathStyle) {
+  const normalizedProvider = String(provider || 'generic_s3').trim()
+  if (normalizedProvider === 'volcengine_tos') return false
+  return forcePathStyle === true
+}
+
 const theme = getTheme()
 const dialog = useDialog()
 const message = useMessage()
@@ -1251,7 +1265,11 @@ const syncCenterModal = reactive({
   testing: false,
   testResult: {
     status: 'idle',
-    message: ''
+    title: '',
+    summary: '',
+    message: '',
+    detailItems: [],
+    nextSteps: []
   },
   form: {
     enabled: false,
@@ -2473,12 +2491,25 @@ function formatCloudProviderEndpoint(provider, region) {
   return preset.endpointTemplate.replace('{region}', normalizedRegion)
 }
 
+function normalizeCloudEndpoint(provider, endpoint, region) {
+  const nextProvider = String(provider || 'generic_s3').trim()
+  const normalizedEndpoint = String(endpoint || '').trim()
+  const normalizedRegion = String(region || '').trim()
+  if (nextProvider === 'volcengine_tos') {
+    return formatCloudProviderEndpoint(nextProvider, normalizedRegion)
+  }
+  return normalizedEndpoint
+}
+
 function applyCloudProviderPreset(provider, options = {}) {
   const nextProvider = String(provider || 'generic_s3').trim()
   const preset = CLOUD_PROVIDER_PRESETS[nextProvider] || CLOUD_PROVIDER_PRESETS.generic_s3
-  const shouldAutofillEndpoint = options.force === true || !String(syncCenterModal.form.cloud.endpoint || '').trim()
+  const shouldAutofillEndpoint =
+    nextProvider === 'volcengine_tos' ||
+    options.force === true ||
+    !String(syncCenterModal.form.cloud.endpoint || '').trim()
   syncCenterModal.form.cloud.provider = nextProvider
-  syncCenterModal.form.cloud.forcePathStyle = preset.forcePathStyle === true
+  syncCenterModal.form.cloud.forcePathStyle = normalizeCloudPathStyle(nextProvider, preset.forcePathStyle === true)
   if (shouldAutofillEndpoint) {
     syncCenterModal.form.cloud.endpoint = formatCloudProviderEndpoint(nextProvider, syncCenterModal.form.cloud.region)
   }
@@ -2491,7 +2522,11 @@ function openSyncCenterModal() {
   syncCenterModal.loading = false
   syncCenterModal.testing = false
   syncCenterModal.testResult.status = 'idle'
+  syncCenterModal.testResult.title = ''
+  syncCenterModal.testResult.summary = ''
   syncCenterModal.testResult.message = ''
+  syncCenterModal.testResult.detailItems = []
+  syncCenterModal.testResult.nextSteps = []
 }
 
 function closeSyncCenterModal() {
@@ -2499,7 +2534,93 @@ function closeSyncCenterModal() {
   syncCenterModal.loading = false
   syncCenterModal.testing = false
   syncCenterModal.testResult.status = 'idle'
+  syncCenterModal.testResult.title = ''
+  syncCenterModal.testResult.summary = ''
   syncCenterModal.testResult.message = ''
+  syncCenterModal.testResult.detailItems = []
+  syncCenterModal.testResult.nextSteps = []
+}
+
+function resetSyncTestResult() {
+  syncCenterModal.testResult.status = 'idle'
+  syncCenterModal.testResult.title = ''
+  syncCenterModal.testResult.summary = ''
+  syncCenterModal.testResult.message = ''
+  syncCenterModal.testResult.detailItems = []
+  syncCenterModal.testResult.nextSteps = []
+}
+
+function buildCloudTestResult(result, providerPreset) {
+  const target = String(result?.connectionTarget || '').trim() || 's3://未配置 bucket'
+  const objectPrefix = String(result?.objectPrefix || '').trim() || 'ai-tools-sync'
+  const endpoint = String(result?.endpoint || '').trim() || '直连对象存储默认 endpoint'
+  const requestUrl = String(result?.lastRequestUrl || result?.checks?.connection?.requestUrl || '').trim()
+  const bucket = String(result?.bucket || syncCenterModal.form.cloud.bucket || '-').trim() || '-'
+  const region = String(syncCenterModal.form.cloud.region || '-').trim() || '-'
+  const provider = String(syncCenterModal.form.cloud.provider || 'generic_s3').trim() || 'generic_s3'
+  const pathStyle = result?.forcePathStyle === true ? 'pathStyle=true' : 'pathStyle=false'
+  const tlsMode = String(result?.tlsMode || '').trim() === 'allow_self_signed' ? '允许自签名证书' : '严格校验证书'
+  return {
+    title: '云端连接验证完成',
+    summary: '连接已通过。',
+    message: `${providerPreset.label}${providerPreset.vendorLabel ? ` ${providerPreset.vendorLabel}` : ''} 连接成功 | provider=${provider} | region=${region} | bucket=${bucket} | endpoint=${endpoint} | ${pathStyle} | TLS=${tlsMode} | prefix=${objectPrefix} | target=${target}`,
+    detailItems: requestUrl ? [{ label: '最终请求', value: requestUrl }] : [],
+    nextSteps: [],
+    note: `目标：${target} / 前缀：${objectPrefix} / Endpoint：${endpoint} / TLS：${tlsMode}${requestUrl ? ` / 请求：${requestUrl}` : ''}`
+  }
+}
+
+function buildMysqlTestResult(result) {
+  const databaseCreated = result?.provisioning?.database?.created === true
+  const tableInfo = result?.provisioning?.tables || {}
+  const tableEntries = Object.entries(tableInfo)
+  const createdTables = tableEntries.filter(([, item]) => item?.created === true).length
+  const summaryParts = [
+    'MySQL 连接成功',
+    result?.database ? `数据库 ${result.database}` : '',
+    result?.userId ? `用户隔离 ${result.userId}` : '',
+    databaseCreated ? '已自动创建数据库' : '数据库已存在',
+    createdTables > 0 ? `已补齐 ${createdTables} 张同步表` : '同步表已就绪'
+  ].filter(Boolean)
+  return {
+    title: 'MySQL 连接验证完成',
+    message: `${summaryParts.join('，')}。`,
+    detailItems: [],
+    nextSteps: []
+  }
+}
+
+function buildSyncTestFailureResult(provider, err) {
+  const label = provider === 'mysql' ? 'MySQL' : '云端'
+  const fieldSummary = provider === 'mysql'
+    ? `host=${String(syncCenterModal.form.mysql.host || '-').trim() || '-'} | port=${Number(syncCenterModal.form.mysql.port || 3306) || 3306} | database=${String(syncCenterModal.form.mysql.database || '-').trim() || '-'}`
+    : `provider=${String(syncCenterModal.form.cloud.provider || '-').trim() || '-'} | region=${String(syncCenterModal.form.cloud.region || '-').trim() || '-'} | bucket=${String(syncCenterModal.form.cloud.bucket || '-').trim() || '-'} | endpoint=${String(syncCenterModal.form.cloud.endpoint || '-').trim() || '-'} | pathStyle=${syncCenterModal.form.cloud.forcePathStyle === true ? 'true' : 'false'}`
+  const requestUrl = String(err?.requestUrl || err?.cause?.requestUrl || '').trim()
+  return {
+    title: `${label}连接验证失败`,
+    summary: describeFileOperationsError(err, provider === 'mysql' ? '测试 MySQL 同步连接' : '测试云端同步连接'),
+    message: `${describeFileOperationsError(err, provider === 'mysql' ? '测试 MySQL 同步连接' : '测试云端同步连接')} | ${fieldSummary}`,
+    detailItems: [
+      { label: '配置检查', value: '未通过，请先确认必填项是否齐全。' },
+      { label: '连接检查', value: '未通过，无法建立对象存储或数据库连接。' },
+      { label: '存储目标', value: provider === 'mysql' ? `数据库：${String(syncCenterModal.form.mysql.database || '-').trim() || '-'}` : `Bucket：${String(syncCenterModal.form.cloud.bucket || '-').trim() || '-'}` },
+      { label: '结果结论', value: '当前配置不可用于同步。' },
+      { label: '下一步建议', value: provider === 'mysql' ? '检查主机、端口、账号权限和数据库名。' : '检查 Bucket、Region、Endpoint、Access Key 和证书设置。' },
+      ...(requestUrl ? [{ label: '最终请求', value: requestUrl }] : []),
+      ...(provider === 'mysql' ? [] : [{ label: '请求目标', value: String(syncCenterModal.form.cloud.endpoint || '-').trim() || '-' }])
+    ],
+    nextSteps: provider === 'mysql'
+      ? [
+        '确认 MySQL 主机、端口、用户名和密码可访问。',
+        '确认数据库已创建，或允许当前账号自动创建数据库和同步表。',
+        '若是远程数据库，请检查网络和防火墙策略。'
+      ]
+      : [
+        '确认对象存储的 Bucket、Region 和 Endpoint 正确。',
+        '确认 Access Key / Secret Access Key 有读写权限。',
+        '若启用自签名证书，请确认 TLS 兜底选项。'
+      ]
+  }
 }
 
 async function saveSyncCenterConfig() {
@@ -2515,8 +2636,8 @@ async function saveSyncCenterConfig() {
         accessKeyId: syncCenterModal.form.cloud.accessKeyId.trim(),
         secretAccessKey: String(syncCenterModal.form.cloud.secretAccessKey || ''),
         bucket: syncCenterModal.form.cloud.bucket.trim(),
-        endpoint: syncCenterModal.form.cloud.endpoint.trim(),
-        forcePathStyle: syncCenterModal.form.cloud.forcePathStyle === true,
+        endpoint: normalizeCloudEndpoint(syncCenterModal.form.cloud.provider, syncCenterModal.form.cloud.endpoint, syncCenterModal.form.cloud.region),
+        forcePathStyle: normalizeCloudPathStyle(syncCenterModal.form.cloud.provider, syncCenterModal.form.cloud.forcePathStyle),
         objectPrefix: syncCenterModal.form.cloud.objectPrefix.trim() || 'ai-tools-sync',
         allowSelfSignedCertificates: syncCenterModal.form.cloud.allowSelfSignedCertificates === true
       },
@@ -2542,8 +2663,8 @@ async function saveSyncCenterConfig() {
         accessKeyId: syncCenterModal.form.cloud.accessKeyId.trim(),
         secretAccessKey: String(syncCenterModal.form.cloud.secretAccessKey || ''),
         bucket: syncCenterModal.form.cloud.bucket.trim(),
-        endpoint: syncCenterModal.form.cloud.endpoint.trim(),
-        forcePathStyle: syncCenterModal.form.cloud.forcePathStyle === true
+        endpoint: normalizeCloudEndpoint(syncCenterModal.form.cloud.provider, syncCenterModal.form.cloud.endpoint, syncCenterModal.form.cloud.region),
+        forcePathStyle: normalizeCloudPathStyle(syncCenterModal.form.cloud.provider, syncCenterModal.form.cloud.forcePathStyle)
       })
     }
     closeSyncCenterModal()
@@ -2557,8 +2678,7 @@ async function saveSyncCenterConfig() {
 
 async function handleTestSyncProvider() {
   syncCenterModal.testing = true
-  syncCenterModal.testResult.status = 'idle'
-  syncCenterModal.testResult.message = ''
+  resetSyncTestResult()
   try {
     const provider = syncCenterModal.form.provider === 'mysql' ? 'mysql' : 'cloud'
     const result = await testUnifiedSync(provider, {
@@ -2570,8 +2690,8 @@ async function handleTestSyncProvider() {
         accessKeyId: syncCenterModal.form.cloud.accessKeyId.trim(),
         secretAccessKey: String(syncCenterModal.form.cloud.secretAccessKey || ''),
         bucket: syncCenterModal.form.cloud.bucket.trim(),
-        endpoint: syncCenterModal.form.cloud.endpoint.trim(),
-        forcePathStyle: syncCenterModal.form.cloud.forcePathStyle === true,
+        endpoint: normalizeCloudEndpoint(syncCenterModal.form.cloud.provider, syncCenterModal.form.cloud.endpoint, syncCenterModal.form.cloud.region),
+        forcePathStyle: normalizeCloudPathStyle(syncCenterModal.form.cloud.provider, syncCenterModal.form.cloud.forcePathStyle),
         objectPrefix: syncCenterModal.form.cloud.objectPrefix.trim() || 'ai-tools-sync',
         allowSelfSignedCertificates: syncCenterModal.form.cloud.allowSelfSignedCertificates === true
       },
@@ -2592,25 +2712,31 @@ async function handleTestSyncProvider() {
     })
     syncCenterModal.testResult.status = 'success'
     if (provider === 'mysql') {
-      const databaseCreated = result?.provisioning?.database?.created === true
-      const tableInfo = result?.provisioning?.tables || {}
-      const createdTables = Object.values(tableInfo).filter((item) => item?.created === true).length
-      const summaryParts = [
-        `MySQL 连接成功`,
-        result?.database ? `数据库 ${result.database}` : '',
-        result?.userId ? `用户隔离 ${result.userId}` : '',
-        databaseCreated ? '已自动创建数据库' : '数据库已存在',
-        createdTables > 0 ? `已补齐 ${createdTables} 张同步表` : '同步表已就绪'
-      ].filter(Boolean)
-      syncCenterModal.testResult.message = `${summaryParts.join('，')}。`
+      const mysqlResult = buildMysqlTestResult(result)
+      syncCenterModal.testResult.title = mysqlResult.title
+      syncCenterModal.testResult.summary = mysqlResult.summary
+      syncCenterModal.testResult.message = mysqlResult.message
+      syncCenterModal.testResult.detailItems = mysqlResult.detailItems
+      syncCenterModal.testResult.nextSteps = mysqlResult.nextSteps
     } else {
       const preset = activeCloudProviderPreset.value
-      syncCenterModal.testResult.message = `${preset.label}${preset.vendorLabel ? ` ${preset.vendorLabel}` : ''} 连接成功，可直接保存当前配置。`
+      const cloudResult = buildCloudTestResult(result, preset)
+      syncCenterModal.testResult.title = cloudResult.title
+      syncCenterModal.testResult.summary = cloudResult.summary
+      syncCenterModal.testResult.message = cloudResult.message
+      syncCenterModal.testResult.detailItems = []
+      syncCenterModal.testResult.nextSteps = []
     }
     message.success(provider === 'mysql' ? 'MySQL 连接测试成功' : '云端连接测试成功')
   } catch (err) {
     syncCenterModal.testResult.status = 'error'
-    syncCenterModal.testResult.message = describeFileOperationsError(err, syncCenterModal.form.provider === 'mysql' ? '测试 MySQL 同步连接' : '测试云端同步连接')
+    const provider = syncCenterModal.form.provider === 'mysql' ? 'mysql' : 'cloud'
+    const failureResult = buildSyncTestFailureResult(provider, err)
+    syncCenterModal.testResult.title = failureResult.title
+    syncCenterModal.testResult.summary = failureResult.summary
+    syncCenterModal.testResult.message = failureResult.message
+    syncCenterModal.testResult.detailItems = failureResult.detailItems
+    syncCenterModal.testResult.nextSteps = failureResult.nextSteps
     message.error(describeFileOperationsError(err, syncCenterModal.form.provider === 'mysql' ? '测试 MySQL 同步连接' : '测试云端同步连接'))
   } finally {
     syncCenterModal.testing = false
@@ -3592,6 +3718,64 @@ async function handleImportConfig() {
 
 .sync-test-feedback {
   word-break: break-word;
+}
+
+.sync-test-result-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.88)),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 52%);
+}
+
+.sync-test-result-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sync-test-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.sync-test-result-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.sync-test-result-item__label {
+  font-size: 12px;
+}
+
+.sync-test-result-item__value {
+  word-break: break-word;
+}
+
+.sync-test-result-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.sync-test-result-step__dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.72);
+  flex: 0 0 auto;
 }
 
 .sync-config-form-grid__full {

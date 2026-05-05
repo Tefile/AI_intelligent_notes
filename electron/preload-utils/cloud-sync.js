@@ -363,8 +363,49 @@ class CloudSyncService {
     async testConnection(override = null) {
         const { cloudConfig } = this._getConfig(override)
         const s3 = this._getS3Client(cloudConfig)
-        await this._withTlsConfig(cloudConfig, () => s3.listObjects(cloudConfig.bucket, normalizeObjectPrefix(cloudConfig.objectPrefix)))
-        return { ok: true }
+        const objectPrefix = normalizeObjectPrefix(cloudConfig.objectPrefix)
+        const connectionTarget = cloudConfig.endpoint
+            ? `${cloudConfig.endpoint.replace(/\/+$/, '')}/${cloudConfig.bucket}`
+            : `s3://${cloudConfig.bucket}`
+        const tlsMode = cloudConfig.allowSelfSignedCertificates === true ? 'allow_self_signed' : 'strict'
+
+        // 用 bucket 级 HEAD 探测桶与签名链路，避免把 ListBucket 权限当成“链路失败”
+        // 也避免依赖一个预先存在的测试对象。
+        await this._withTlsConfig(cloudConfig, () => s3.headObject(cloudConfig.bucket, ''))
+        const lastRequestUrl = typeof s3.getLastRequestUrl === 'function' ? s3.getLastRequestUrl() : ''
+
+        return {
+            ok: true,
+            provider: 'cloud',
+            bucket: cloudConfig.bucket,
+            objectPrefix,
+            endpoint: cloudConfig.endpoint || '',
+            forcePathStyle: cloudConfig.forcePathStyle === true,
+            tlsMode,
+            connectionTarget,
+            lastRequestUrl,
+            accessible: true,
+            checks: {
+                config: {
+                    ok: true,
+                    provider: cloudConfig.provider || 'generic_s3',
+                    bucket: cloudConfig.bucket,
+                    endpoint: cloudConfig.endpoint || '',
+                    objectPrefix
+                },
+                connection: {
+                    ok: true,
+                    target: connectionTarget,
+                    accessible: true,
+                    requestUrl: lastRequestUrl
+                },
+                storage: {
+                    ok: true,
+                    bucket: cloudConfig.bucket,
+                    objectPrefix
+                }
+            }
+        }
     }
 
     async backup(progressCallback) {

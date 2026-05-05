@@ -1,4 +1,5 @@
-// 文件操作工具：统一处理读写、缓存 Blob URL 和路径检查。
+// 文件操作工具：统一处理读写、Blob URL 和路径检查。
+
 function getFileOperationsApi() {
     return globalThis?.fileOperations || globalThis?.electronAPI?.fileOperations || null;
 }
@@ -25,6 +26,46 @@ const S_IFMT = 0o170000;
 const S_IFDIR = 0o040000;
 const S_IFREG = 0o100000;
 
+function formatCloudSyncError(raw, label) {
+    const text = String(raw || '').trim();
+    const name = String(label || '云端同步').trim() || '云端同步';
+    const lower = text.toLowerCase();
+    const statusMatch = text.match(/\((\d{3})\)/);
+    const statusCode = statusMatch ? Number(statusMatch[1]) : null;
+
+    if (
+        statusCode === 403 ||
+        /accessdenied|forbidden|signaturedoesnotmatch|invalidaccesskeyid|authorization.*malformed/i.test(text)
+    ) {
+        return `${name}失败：服务端拒绝了请求，常见原因是 Access Key / Secret Key 不对、region 不匹配，或桶策略不允许当前账号访问。`;
+    }
+
+    if (
+        statusCode === 404 ||
+        /nosuchbucket|the specified bucket does not exist|not found/i.test(text)
+    ) {
+        return `${name}失败：Bucket 不存在、Endpoint 指向了错误区域，或桶名与实际配置不一致。`;
+    }
+
+    if (
+        /ssl|tls|certificate|self signed|unable to verify the first certificate|certificate has expired/i.test(lower)
+    ) {
+        return `${name}失败：TLS / 证书校验没有通过。若使用自签名证书或私有对象存储网关，请打开“允许自签名证书”后重试。`;
+    }
+
+    if (
+        /econnreset|etimedout|enotfound|eai_again|fetch failed|network|socket hang up|timeout/i.test(lower)
+    ) {
+        return `${name}失败：网络链路不稳定、DNS 解析失败，或对象存储端口 / 防火墙不可达。`;
+    }
+
+    if (/method not allowed|not implemented|unsupported/i.test(lower)) {
+        return `${name}失败：当前 Endpoint 可能不支持所请求的 API，或需要切换 path-style / virtual-host-style。`;
+    }
+
+    return '';
+}
+
 export function hasFileOperationsApi() {
     return !!getFileOperationsApi();
 }
@@ -33,11 +74,14 @@ export function describeFileOperationsError(err, featureLabel = '当前功能') 
     const raw = err?.message || String(err || '');
     const label = String(featureLabel || '当前功能').trim() || '当前功能';
 
+    const cloudHint = formatCloudSyncError(raw, label);
+    if (cloudHint) return cloudHint;
+
     if (raw.includes('未注入')) {
         const runtime = getRuntimeEnvironmentSnapshot();
 
         if (!runtime.hasElectronUserAgent && !runtime.hasElectronApi) {
-            return `${label}依赖 Electron preload 注入的 fileOperations。当前页面看起来运行在普通浏览器或单独的 Vite 页面中，而不是 Electron 桌面窗口。请使用 \`npm start\` 启动应用，不要直接打开 localhost 页面。`;
+            return `${label}依赖 Electron preload 注入的 fileOperations。当前页面看起来运行在普通浏览器或独立的 Vite 页面中，而不是 Electron 桌面窗口。请使用 \`npm start\` 启动应用，不要直接打开 localhost 页面。`;
         }
 
         if (runtime.hasElectronApi && !runtime.hasFileOperationsApi) {
